@@ -1,0 +1,19 @@
+# rust
+**/*.rs.bk
+/target
+
+# editor
+*~
+.*~
+*.swp
+
+# python
+/tracker/__pycache__
+*.pyc
+*.pyo
+__pycache__/
+/detectron_detector/__main__
+
+# ninja
+.ninja_deps
+.ninja_log
