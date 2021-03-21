@@ -1,0 +1,15 @@
+[package]
+name = "zenoh-consensus"
+version = "0.1.0"
+authors = ["Hsiang-Jui Lin <jerry73204@gmail.com>", "Yi-Hung Kuo <50904241+eurc17@users.noreply.github.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+zenoh = "0.5.0-beta.7"
+async-std = "1.9.0"
+futures = "0.3.13"
+uhlc = "0.2.1"
+tokio = { version = "1.3.0", features = ["sync"] }
+anyhow = "1.0.38"
