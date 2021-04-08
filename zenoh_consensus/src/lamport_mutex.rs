@@ -1,6 +1,8 @@
 use crate::common::*;
 use async_std::sync::Mutex;
 
+
+
 pub struct LamportMutex {
     id: usize,
     zenoh: Arc<Zenoh>,
@@ -289,6 +291,9 @@ impl LamportMutex {
             };
             drop(state);
             let workspace = zenoh.workspace(None).await?;
+            //let hlc = HLC::default();
+            //let local_timestamp = hlc.new_timestamp().await;
+            //let z_local_timestamp = zenoh::Timestamp::new(*local_timestamp.get_time(), *local_timestamp.get_id());
             workspace.put(request_key, "Request".into()).await?;
             eprintln!("peer {} sends request to {}", id, request_key);
         }
