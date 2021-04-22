@@ -1,8 +1,6 @@
 use crate::common::*;
 use async_std::sync::Mutex;
 
-
-
 pub struct LamportMutex {
     id: usize,
     zenoh: Arc<Zenoh>,
@@ -19,9 +17,9 @@ pub struct LamportMutexGuard {
 #[derive(Debug, Clone)]
 enum State {
     Idle,
-    PreRequest{
-    	ack_count:usize,
-    	unattended_requests: Vec<(usize, zenoh::Timestamp)>,
+    PreRequest {
+        ack_count: usize,
+        unattended_requests: Vec<(usize, zenoh::Timestamp)>,
     },
     Requesting {
         timestamp: zenoh::Timestamp,
@@ -95,7 +93,10 @@ impl LamportMutex {
 
                             match &mut *state {
                                 State::Idle => {
-                                	eprintln!("peer {} enters Idle, change_path = {}", id, change.path);
+                                    eprintln!(
+                                        "peer {} enters Idle, change_path = {}",
+                                        id, change.path
+                                    );
                                     // reply acks to other peers in idle state
                                     let peer_id: usize =
                                         change.path.last_segment().parse().unwrap();
@@ -109,14 +110,16 @@ impl LamportMutex {
                                         .put(&ack_key, "Ack".into())
                                         .await?;
                                     eprintln!("peer {} sends ack to {}", id, ack_key);
-                                 
                                 }
-                                State::PreRequest{
-                                	unattended_requests,
-                                	ack_count,
-                                }=> {
-                                	eprintln!("peer {} enters PreRequest, change_path = {}", id, change.path);
-                                	if change.path == *request_key {
+                                State::PreRequest {
+                                    unattended_requests,
+                                    ack_count,
+                                } => {
+                                    eprintln!(
+                                        "peer {} enters PreRequest, change_path = {}",
+                                        id, change.path
+                                    );
+                                    if change.path == *request_key {
                                         // enter requesting state if self request is sent
                                         *state = State::Requesting {
                                             timestamp: change.timestamp,
@@ -124,12 +127,11 @@ impl LamportMutex {
                                             pending_requests: vec![],
                                             unattended_requests: unattended_requests.to_vec(),
                                         };
-                                    } 
-                                    else{
-                                    	//Save all request to pending and compare later
-                                    	let peer_id: usize =
-                                        change.path.last_segment().parse().unwrap();
-                                    	unattended_requests.push((peer_id, change.timestamp));
+                                    } else {
+                                        //Save all request to pending and compare later
+                                        let peer_id: usize =
+                                            change.path.last_segment().parse().unwrap();
+                                        unattended_requests.push((peer_id, change.timestamp));
                                     }
                                 }
                                 State::Requesting {
@@ -138,30 +140,45 @@ impl LamportMutex {
                                     unattended_requests,
                                     ..
                                 } => {
-                                	eprintln!("peer {} enters Requesting", id);
-                                	if unattended_requests.len() != 0 {
-                                		//deal with the request arriving before self timestamping
-                                		eprintln!("peer {} dealing with unattended_requests", id);
-                                		*pending_requests = unattended_requests.into_iter().filter(|(_id, timestamp_unattended)| *timestamp_unattended > *timestamp).map(|(id, _timestamp)| *id).collect::<Vec<usize>>();
-                                		let to_ack = unattended_requests.into_iter().filter(|(_id, timestamp_unattended)| *timestamp_unattended < *timestamp).map(|(id, _timestamp)| *id).collect::<Vec<usize>>();
-                                		for peer_id in to_ack{
-                                			let ack_key: zenoh::Path =
-		                                        format!("{}/{}/{}", ack_base_dir, peer_id, id)
-		                                            .try_into()
-		                                            .unwrap();
-		                                    zenoh
-		                                        .workspace(None)
-		                                        .await?
-		                                        .put(&ack_key, "Ack".into())
-		                                        .await?;
-		                                    eprintln!("peer {} sends ack to {}", id, ack_key);
-                                		}
-                                		unattended_requests.clear();
-                                	}
+                                    eprintln!("peer {} enters Requesting", id);
+                                    if unattended_requests.len() != 0 {
+                                        //deal with the request arriving before self timestamping
+                                        eprintln!("peer {} dealing with unattended_requests", id);
+                                        *pending_requests = unattended_requests
+                                            .into_iter()
+                                            .filter(|(_id, timestamp_unattended)| {
+                                                *timestamp_unattended > *timestamp
+                                            })
+                                            .map(|(id, _timestamp)| *id)
+                                            .collect::<Vec<usize>>();
+                                        let to_ack = unattended_requests
+                                            .into_iter()
+                                            .filter(|(_id, timestamp_unattended)| {
+                                                *timestamp_unattended < *timestamp
+                                            })
+                                            .map(|(id, _timestamp)| *id)
+                                            .collect::<Vec<usize>>();
+                                        for peer_id in to_ack {
+                                            let ack_key: zenoh::Path =
+                                                format!("{}/{}/{}", ack_base_dir, peer_id, id)
+                                                    .try_into()
+                                                    .unwrap();
+                                            zenoh
+                                                .workspace(None)
+                                                .await?
+                                                .put(&ack_key, "Ack".into())
+                                                .await?;
+                                            eprintln!("peer {} sends ack to {}", id, ack_key);
+                                        }
+                                        unattended_requests.clear();
+                                    }
                                     assert!(change.path != *request_key);
                                     let peer_id: usize =
                                         change.path.last_segment().parse().unwrap();
-                                    eprintln!("peer {} own_time = {}, change {} time = {}", id, timestamp, peer_id, change.timestamp);
+                                    eprintln!(
+                                        "peer {} own_time = {}, change {} time = {}",
+                                        id, timestamp, peer_id, change.timestamp
+                                    );
                                     if change.timestamp < *timestamp {
                                         // if peer request has higher priority (smaller timestamp),
                                         // ack immediately
@@ -224,14 +241,18 @@ impl LamportMutex {
                                     }
                                 }
                                 State::PreRequest {
-                                	ack_count,
-                                	unattended_requests, 
+                                    ack_count,
+                                    unattended_requests,
                                 } => {
                                     *ack_count += 1;
 
                                     if *ack_count == num_peers - 1 {
                                         *state = State::CriticalSection {
-                                            pending_requests: unattended_requests.into_iter().map(|(id, _timestamp)| *id).collect::<Vec<usize>>().to_vec(),
+                                            pending_requests: unattended_requests
+                                                .into_iter()
+                                                .map(|(id, _timestamp)| *id)
+                                                .collect::<Vec<usize>>()
+                                                .to_vec(),
                                         };
                                         lock_tx.send(())?;
                                     }
@@ -284,10 +305,10 @@ impl LamportMutex {
         {
             let mut state = state.lock().await;
             assert!(matches!(&*state, State::Idle));
-            
-            *state = State::PreRequest{
-            	ack_count: 0,
-            	unattended_requests: vec![],
+
+            *state = State::PreRequest {
+                ack_count: 0,
+                unattended_requests: vec![],
             };
             drop(state);
             let workspace = zenoh.workspace(None).await?;
@@ -359,7 +380,10 @@ mod tests {
 
                 let mutex = LamportMutex::new(zenoh.clone(), prefix, id, num_peers).await?;
                 eprintln!("peer {} joined mutex", id);
-                async_std::task::sleep(Duration::from_millis((1000*(id+1)).try_into().unwrap())).await;
+                async_std::task::sleep(Duration::from_millis(
+                    (1000 * (id + 1)).try_into().unwrap(),
+                ))
+                .await;
                 let guard = mutex.lock().await?;
                 eprintln!("peer {} locked mutex", id);
 
