@@ -12,6 +12,7 @@ pub use std::{
     },
     thread,
     time::Duration,
+    collections::HashMap,
 };
 pub use tokio::sync::watch;
 pub use uhlc::*;
