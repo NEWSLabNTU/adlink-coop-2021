@@ -368,14 +368,17 @@ mod tests {
 
     #[async_std::test]
     async fn lamport_mutex_text() -> Result<()> {
-        let num_peers = 2;
+        let num_peers = 10;
         let prefix = Arc::new(zenoh::Path::try_from("/lamport_mutex/").unwrap());
 
         let peer_futures = (0..num_peers).map(|id| {
             let prefix = prefix.clone();
 
             async move {
-                let zenoh = Arc::new(Zenoh::new(Default::default()).await?);
+                let mut config =  zenoh::ConfigProperties::default();
+                config.insert(zenoh::net::config::ZN_ADD_TIMESTAMP_KEY, "true".to_string());
+                
+                let zenoh = Arc::new(Zenoh::new(config).await?);
                 eprintln!("peer {} started zenoh", id);
 
                 let mutex = LamportMutex::new(zenoh.clone(), prefix, id, num_peers).await?;
