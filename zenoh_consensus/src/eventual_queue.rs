@@ -752,7 +752,9 @@ mod tests {
             let prefix = prefix.clone();
 
             async move {
-                let zenoh = Arc::new(Zenoh::new(Default::default()).await?);
+                let mut config =  zenoh::ConfigProperties::default();
+                config.insert(zenoh::net::config::ZN_ADD_TIMESTAMP_KEY, "true".to_string());
+                let zenoh = Arc::new(Zenoh::new(config).await?);
                 eprintln!("peer {} started zenoh", id);
 
                 let queue = EventualQueue::new(zenoh.clone(), prefix, id, num_peers).await?;
