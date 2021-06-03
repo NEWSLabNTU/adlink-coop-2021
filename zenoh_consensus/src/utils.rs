@@ -31,3 +31,16 @@ impl ValueExt for Value {
         Ok(value)
     }
 }
+
+pub trait NTP64Ext {
+    fn from_u64(value: u64) -> Self;
+}
+
+impl NTP64Ext for uhlc::NTP64 {
+    fn from_u64(value: u64) -> Self {
+        let secs = value >> 32;
+        let subsec_nanos = ((value & 0xFFFF_FFFFu64) * 1_000_000_000 / (1u64 << 32)) as u32;
+        let duration = Duration::new(secs, subsec_nanos);
+        duration.into()
+    }
+}
