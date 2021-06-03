@@ -375,9 +375,9 @@ mod tests {
             let prefix = prefix.clone();
 
             async move {
-                let mut config =  zenoh::ConfigProperties::default();
+                let mut config = zenoh::ConfigProperties::default();
                 config.insert(zenoh::net::config::ZN_ADD_TIMESTAMP_KEY, "true".to_string());
-                
+
                 let zenoh = Arc::new(Zenoh::new(config).await?);
                 eprintln!("peer {} started zenoh", id);
 
