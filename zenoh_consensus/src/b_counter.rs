@@ -1,5 +1,3 @@
-use async_std::sync::MutexGuard;
-
 use crate::{common::*, utils::ValueExt};
 
 pub struct BCounter {
