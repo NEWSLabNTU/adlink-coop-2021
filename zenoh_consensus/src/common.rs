@@ -3,10 +3,11 @@ pub use dashmap::{DashMap, DashSet};
 pub use derivative::Derivative;
 pub use futures::{
     future::FutureExt,
-    stream::{StreamExt, TryStreamExt},
+    stream::{Stream, StreamExt, TryStreamExt},
 };
-pub use log::warn;
+pub use log::{debug, warn};
 pub use owning_ref::ArcRef;
+pub use rand::prelude::*;
 pub use serde::{de::DeserializeOwned, Deserialize, Serialize};
 pub use std::{
     borrow::Borrow,
@@ -26,7 +27,7 @@ pub use std::{
     thread,
     time::{Duration, Instant},
 };
-pub use tokio::sync::{watch, Notify};
+pub use tokio::sync::{mpsc, watch, Notify};
 pub use uhlc::*;
 pub use zenoh::{Selector, Value, Workspace, Zenoh};
 
