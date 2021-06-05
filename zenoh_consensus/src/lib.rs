@@ -6,3 +6,4 @@ pub mod np_counter;
 pub mod np_counter_hashmap;
 pub mod reliable_broadcast;
 mod utils;
+pub mod zenoh_sender;

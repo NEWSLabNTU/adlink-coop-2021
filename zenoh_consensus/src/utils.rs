@@ -1,5 +1,13 @@
 use crate::common::*;
 
+pub async fn timeout_until<F, T>(until: Instant, f: F) -> Result<T, async_std::future::TimeoutError>
+where
+    F: Future<Output = T>,
+{
+    let timeout = until.saturating_duration_since(Instant::now());
+    async_std::future::timeout(timeout, f).await
+}
+
 pub trait ValueExt {
     fn serialize_from<T>(value: &T) -> Result<Value>
     where

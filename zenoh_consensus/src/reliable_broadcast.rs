@@ -1,12 +1,15 @@
-use crate::{common::*, utils::ValueExt};
+use crate::{
+    common::*,
+    utils::{self, ValueExt},
+    zenoh_sender::ZenohSender,
+};
 use tokio_stream::wrappers::ReceiverStream;
-
-use zenoh_sender::*;
 
 pub fn new<T>(
     zenoh: Arc<Zenoh>,
     path: impl Borrow<zenoh::Path>,
     id: impl AsRef<str>,
+    max_rounds: usize,
     timeout: Duration,
 ) -> (Sender<T>, Receiver<Msg<T>>)
 where
@@ -30,6 +33,8 @@ where
     let recv_worker = tokio::spawn(recv_worker::<T>(
         id.to_string(),
         zenoh.clone(),
+        max_rounds,
+        timeout,
         send_key.clone(),
         recv_selector.clone(),
         job_tx,
@@ -118,9 +123,11 @@ where
 async fn recv_worker<T>(
     id: String,
     zenoh: Arc<Zenoh>,
+    max_rounds: usize,
+    timeout: Duration,
     _send_key: zenoh::Path,
     recv_selector: zenoh::Selector,
-    job_tx: mpsc::Sender<Pin<Box<dyn Send + Future<Output = Result<Msg<T>>>>>>,
+    job_tx: mpsc::Sender<Pin<Box<dyn Send + Future<Output = Result<Option<Msg<T>>>>>>>,
     zenoh_tx: ZenohSender<Message<T>>,
     peers: Arc<DashSet<String>>,
     contexts: Arc<DashMap<(String, usize), Context<T>>>,
@@ -142,7 +149,6 @@ where
 
         match change.kind {
             zenoh::ChangeKind::Put => {
-                debug!("{} inserts {} to peer set", id, peer_name);
                 peers.insert(peer_name.to_string());
 
                 let value = change.value.unwrap();
@@ -156,24 +162,29 @@ where
 
                 match msg {
                     Message::Msg { seq, data } => {
-                        debug!("{} -> {}: msg, seq={}", id, peer_name, seq);
+                        debug!("{} -> {}: msg, seq={}", peer_name, id, seq);
 
                         let key = (peer_name.to_string(), seq);
                         let entry = contexts.entry(key);
 
                         match entry {
                             dashmap::mapref::entry::Entry::Occupied(_) => {
-                                warn!("received duplicated message {}/{}", peer_name, seq);
+                                warn!(
+                                    "{} received duplicated broadcast from {} (seq={})",
+                                    id, peer_name, seq
+                                );
                             }
                             dashmap::mapref::entry::Entry::Vacant(entry) => {
                                 let (echo_count_tx, echo_count_rx) = watch::channel(0);
                                 // let zenoh_tx = ZenohSender::new(zenoh.clone(), send_key.clone());
 
                                 // save future to some place and await it
-                                let future = tokio::spawn(consensus_worker(
+                                let future = tokio::spawn(coordinate_worker(
                                     id.clone(),
                                     seq,
                                     peer_name.to_string(),
+                                    max_rounds,
+                                    timeout,
                                     peers.clone(),
                                     zenoh_tx.clone(),
                                     echo_count_rx,
@@ -188,6 +199,7 @@ where
                                 }
 
                                 let context = Context {
+                                    finished: false,
                                     echo_count_tx,
                                     _phantom: PhantomData,
                                 };
@@ -197,28 +209,38 @@ where
                         }
                     }
                     Message::Present => {
-                        debug!("{} -> {}: present", id, peer_name);
+                        debug!("{} -> {}: present", peer_name, id);
                     }
                     Message::Echo { seq, sender } => {
                         debug!(
                             "{} -> {}: echo, seq={}, sender={}",
-                            seq, peer_name, id, sender,
+                            peer_name, id, seq, sender,
                         );
 
-                        let key = (peer_name.to_string(), seq);
-                        let context = match contexts.get(&key) {
+                        let key = (sender.clone(), seq);
+                        let mut context = match contexts.get_mut(&key) {
                             Some(context) => context,
                             None => {
                                 warn!(
-                                    "received echo {}/{} from {}, but broadcast was not received",
-                                    sender, seq, peer_name
+                                    "{} received echo from {} (sender={}, seq={}), but broadcast was not received",
+                                    id, peer_name, sender, seq
+                                );
+                                debug!(
+                                    "{} -> {}: received echo (sender={}, seq={}), but broadcast was not received",
+                                    peer_name, id, sender, seq
                                 );
                                 continue;
                             }
                         };
 
-                        let new_echo_count = *context.echo_count_tx.borrow() + 1;
-                        context.echo_count_tx.send(new_echo_count).unwrap();
+                        if !context.finished {
+                            let new_echo_count = *context.echo_count_tx.borrow() + 1;
+                            let result = context.echo_count_tx.send(new_echo_count);
+
+                            if result.is_err() {
+                                context.finished = true;
+                            }
+                        }
                     }
                 }
             }
@@ -234,15 +256,17 @@ where
     Ok(())
 }
 
-async fn consensus_worker<T>(
+async fn coordinate_worker<T>(
     id: String,
     seq: usize,
     peer_name: String,
+    max_rounds: usize,
+    timeout: Duration,
     peers: Arc<DashSet<String>>,
     zenoh_tx: ZenohSender<Message<T>>,
     mut echo_count_rx: watch::Receiver<usize>,
     data: T,
-) -> Result<Msg<T>>
+) -> Result<Option<Msg<T>>>
 where
     T: 'static + Send + Sync + Serialize + DeserializeOwned,
 {
@@ -253,16 +277,32 @@ where
         })
         .await?;
 
-    for round in 0.. {
+    let mut accepted = false;
+
+    'round_loop: for round in 0..max_rounds {
         debug!("{} start round {}", peer_name, round);
 
+        let until = Instant::now() + timeout;
         loop {
-            echo_count_rx.changed().await?;
+            let result = utils::timeout_until(until, echo_count_rx.changed()).await;
+            match result {
+                Ok(result) => {
+                    result?;
+                }
+                Err(_) => {
+                    debug!(
+                        "{} timeout in 1st phase: sender={}, seq={}",
+                        id, peer_name, seq
+                    );
+                    continue 'round_loop;
+                }
+            }
+
             let echo_count = *echo_count_rx.borrow();
             let num_peers = peers.len();
             debug!(
-                "{} in 1st phase: sender={}, {} echos, {} peers",
-                id, peer_name, echo_count, num_peers
+                "{} in 1st phase: sender={}, seq={}, {} echos, {} peers",
+                id, peer_name, seq, echo_count, num_peers
             );
 
             if echo_count * 3 >= num_peers {
@@ -277,31 +317,51 @@ where
             })
             .await?;
 
+        let until = Instant::now() + timeout;
         loop {
-            echo_count_rx.changed().await?;
+            let result = utils::timeout_until(until, echo_count_rx.changed()).await;
+            match result {
+                Ok(result) => {
+                    result?;
+                }
+                Err(_) => {
+                    debug!(
+                        "{} timeout in 1st phase: sender={}, seq={}",
+                        id, peer_name, seq
+                    );
+                    continue 'round_loop;
+                }
+            }
+
             let echo_count = *echo_count_rx.borrow();
             let num_peers = peers.len();
             debug!(
-                "{} in 2st phase: sender={}, {} echos, {} peers",
-                id, peer_name, echo_count, num_peers
+                "{} in 2nd phase: sender={}, seq={}, {} echos, {} peers",
+                id, peer_name, seq, echo_count, num_peers
             );
 
             if echo_count * 3 >= num_peers * 2 {
-                break;
+                accepted = true;
+                break 'round_loop;
             }
         }
     }
 
-    debug!("{} accepts, sender={}, seq={}", id, peer_name, seq);
-    Ok(Msg {
-        data,
-        sender: peer_name,
-        seq,
-    })
+    if accepted {
+        debug!("{} accepts, sender={}, seq={}", id, peer_name, seq);
+        Ok(Some(Msg {
+            data,
+            sender: peer_name,
+            seq,
+        }))
+    } else {
+        debug!("{} rejects, sender={}, seq={}", id, peer_name, seq);
+        Ok(None)
+    }
 }
 
 async fn await_worker<T>(
-    mut job_rx: mpsc::Receiver<Pin<Box<dyn Send + Future<Output = Result<Msg<T>>>>>>,
+    mut job_rx: mpsc::Receiver<Pin<Box<dyn Send + Future<Output = Result<Option<Msg<T>>>>>>>,
     output_tx: mpsc::Sender<Msg<T>>,
 ) -> Result<()> {
     let mut futures = vec![];
@@ -326,8 +386,12 @@ async fn await_worker<T>(
                 (result, index, _futures) = futures::future::select_all(&mut futures) => {
                     futures.remove(index);
                     let output = result?;
-                    let result = output_tx.send(output).await;
-                    if result.is_err() {break;}
+                    if let Some(output) = output {
+                        let result = output_tx.send(output).await;
+                        if result.is_err() {
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -340,6 +404,7 @@ async fn await_worker<T>(
 #[derive(Derivative)]
 #[derivative(Debug)]
 struct Context<T> {
+    finished: bool,
     echo_count_tx: watch::Sender<usize>,
     _phantom: PhantomData<T>,
 }
@@ -358,132 +423,83 @@ enum Message<T> {
     Echo { seq: usize, sender: String },
 }
 
-mod zenoh_sender {
-    use super::*;
+// mod pubsub {
+//     use super::*;
 
-    #[derive(Derivative)]
-    #[derivative(Debug)]
-    pub struct ZenohSender<T>
-    where
-        T: Serialize,
-    {
-        #[derivative(Debug = "ignore")]
-        zenoh: Arc<Zenoh>,
-        key: zenoh::Path,
-        _phantom: PhantomData<T>,
-    }
+//     #[derive(Derivative)]
+//     #[derivative(Debug)]
+//     pub struct Sender<T> {
+//         #[derivative(Debug = "ignore")]
+//         tx: watch::Sender<Cell<Option<T>>>,
+//     }
 
-    impl<T> ZenohSender<T>
-    where
-        T: Serialize,
-    {
-        pub fn new(zenoh: Arc<Zenoh>, key: zenoh::Path) -> Self {
-            Self {
-                zenoh,
-                key,
-                _phantom: PhantomData,
-            }
-        }
+//     impl<T> Sender<T> {
+//         pub fn send(&self, msg: T) -> Result<()> {
+//             self.tx
+//                 .send(Cell::new(Some(msg)))
+//                 .map_err(|_| format_err!("send failed"))?;
+//             Ok(())
+//         }
+//     }
 
-        pub async fn send(&self, data: T) -> Result<()> {
-            let msg = zenoh::Value::serialize_from(&data)?;
-            let workspace = self.zenoh.workspace(None).await?;
-            workspace.put(&self.key, msg).await?;
-            Ok(())
-        }
-    }
+//     #[derive(Derivative)]
+//     #[derivative(Debug)]
+//     pub struct Receiver<T> {
+//         #[derivative(Debug = "ignore")]
+//         rx: watch::Receiver<Cell<Option<T>>>,
+//     }
 
-    impl<T> Clone for ZenohSender<T>
-    where
-        T: Serialize,
-    {
-        fn clone(&self) -> Self {
-            Self {
-                zenoh: self.zenoh.clone(),
-                key: self.key.clone(),
-                _phantom: PhantomData,
-            }
-        }
-    }
-}
+//     impl<T> Receiver<T> {
+//         pub async fn recv(&self) -> Option<T> {
+//             let mut rx = self.rx.clone();
+//             loop {
+//                 if rx.changed().await.is_err() {
+//                     return None;
+//                 }
 
-mod pubsub {
-    use super::*;
+//                 let msg = match rx.borrow().take().take() {
+//                     Some(msg) => msg,
+//                     None => continue,
+//                 };
+//                 return Some(msg);
+//             }
+//         }
+//     }
 
-    #[derive(Derivative)]
-    #[derivative(Debug)]
-    pub struct Sender<T> {
-        #[derivative(Debug = "ignore")]
-        tx: watch::Sender<Cell<Option<T>>>,
-    }
+//     pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
+//         let (tx, rx) = watch::channel(Cell::new(None));
+//         (Sender { tx }, Receiver { rx })
+//     }
 
-    impl<T> Sender<T> {
-        pub fn send(&self, msg: T) -> Result<()> {
-            self.tx
-                .send(Cell::new(Some(msg)))
-                .map_err(|_| format_err!("send failed"))?;
-            Ok(())
-        }
-    }
+//     #[cfg(test)]
+//     mod tests {
+//         use super::*;
 
-    #[derive(Derivative)]
-    #[derivative(Debug)]
-    pub struct Receiver<T> {
-        #[derivative(Debug = "ignore")]
-        rx: watch::Receiver<Cell<Option<T>>>,
-    }
+//         #[async_std::test]
+//         async fn pubsub_test() -> Result<()> {
+//             let (tx, rx) = super::channel();
 
-    impl<T> Receiver<T> {
-        pub async fn recv(&self) -> Option<T> {
-            let mut rx = self.rx.clone();
-            loop {
-                if rx.changed().await.is_err() {
-                    return None;
-                }
+//             let producer = async move {
+//                 for index in 0..5 {
+//                     tx.send(index).unwrap();
+//                     async_std::task::sleep(Duration::from_millis(10)).await;
+//                 }
+//             };
 
-                let msg = match rx.borrow().take().take() {
-                    Some(msg) => msg,
-                    None => continue,
-                };
-                return Some(msg);
-            }
-        }
-    }
+//             let consumer = async move {
+//                 for index in 0..5 {
+//                     let value = rx.recv().await.unwrap();
+//                     assert_eq!(index, value);
+//                 }
+//                 assert!(rx.recv().await.is_none());
+//             };
 
-    pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
-        let (tx, rx) = watch::channel(Cell::new(None));
-        (Sender { tx }, Receiver { rx })
-    }
+//             futures::join!(producer, consumer);
 
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[async_std::test]
-        async fn pubsub_test() -> Result<()> {
-            let (tx, rx) = super::channel();
-
-            let producer = async move {
-                for index in 0..5 {
-                    tx.send(index).unwrap();
-                    async_std::task::sleep(Duration::from_millis(10)).await;
-                }
-            };
-
-            let consumer = async move {
-                for index in 0..5 {
-                    let value = rx.recv().await.unwrap();
-                    assert_eq!(index, value);
-                }
-                assert!(rx.recv().await.is_none());
-            };
-
-            futures::join!(producer, consumer);
-
-            Ok(())
-        }
-    }
-}
+//             Ok(())
+//         }
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
@@ -495,7 +511,7 @@ mod tests {
 
         const NUM_PEERS: usize = 4;
         const NUM_MSGS: usize = 1;
-        const base_dir: &str = "ReliableBroadcast";
+        const BASE_DIR: &str = "reliable_broadcast";
 
         let futures = (0..NUM_PEERS).map(|peer_index| async move {
             let mut config = zenoh::ConfigProperties::default();
@@ -503,22 +519,30 @@ mod tests {
             let zenoh = Arc::new(Zenoh::new(config).await?);
 
             let name = format!("peer_{}", peer_index);
-            let path = zenoh::path(base_dir);
+            let path = zenoh::path(BASE_DIR);
 
-            let (tx, mut rx) = super::new(zenoh, path, &name, Duration::from_secs(1));
+            let (tx, mut rx) = super::new(zenoh, path, &name, 4, Duration::from_millis(100));
 
-            let producer = async move {
-                let mut rng = rand::thread_rng();
+            let producer = {
+                let name = name.clone();
+                async move {
+                    let mut rng = rand::thread_rng();
 
-                for _ in 0..NUM_MSGS {
-                    let data: u8 = rng.gen();
-                    tx.send(data).await?;
+                    for seq in 0..NUM_MSGS {
+                        async_std::task::sleep(Duration::from_millis(100)).await;
+
+                        let data: u8 = rng.gen();
+                        eprintln!("{} sends seq={}, data={}", name, seq, data);
+                        tx.send(data).await?;
+                    }
+
+                    Fallible::Ok(())
                 }
-
-                Fallible::Ok(())
             };
+
             let consumer = async move {
-                while let Some(msg) = rx.recv().await? {
+                for _ in 0..(NUM_PEERS * NUM_MSGS) {
+                    let msg = rx.recv().await?.unwrap();
                     eprintln!(
                         "{} received sender={}, seq={}, data={}",
                         name, msg.sender, msg.seq, msg.data
