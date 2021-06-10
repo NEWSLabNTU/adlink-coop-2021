@@ -270,6 +270,8 @@ async fn coordinate_worker<T>(
 where
     T: 'static + Send + Sync + Serialize + DeserializeOwned,
 {
+    // tokio::time::sleep(Duration::from_millis(100)).await;
+    tokio::time::sleep(timeout).await;
     zenoh_tx
         .send(Message::Echo {
             seq,
