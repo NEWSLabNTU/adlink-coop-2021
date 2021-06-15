@@ -38,7 +38,7 @@ impl BCounter {
                             eprintln!("peer {} received update from peer {}", id, peer_id);
                             // merge state from peer with ours
                             let peer_state: State = change.value.unwrap().deserialize_to()?;
-                            state.lock().unwrap().merge_assign(&peer_state);
+                            state.lock().unwrap().merge_assign(&peer_state).unwrap();
                             Fallible::Ok(())
                         }
                     })
@@ -80,7 +80,6 @@ impl BCounter {
         let Self { id, ref state, .. } = *self;
         let mut state = state.lock().unwrap();
         let origin_neg_value = *state.neg_count.get(&id).unwrap();
-        let origin_pos_value = *state.pos_count.get(&id).unwrap();
         let self_quota = BCounter::get_quota(id, &state);
         let mut to_borrow = (count as isize) - self_quota;
         if to_borrow <= 0 {
@@ -92,7 +91,7 @@ impl BCounter {
                 .insert(id, origin_neg_value + max(self_quota as usize, 0));
             //Borrow from known peers until sufficient or no more to borrow
             let old_state = state.clone();
-            for (key, value) in old_state.pos_count.iter() {
+            for (key, _value) in old_state.pos_count.iter() {
                 if *key != id {
                     //Other peers
                     let quota = BCounter::get_quota(*key, &state);
@@ -113,7 +112,7 @@ impl BCounter {
     }
 
     pub async fn get(&self) -> isize {
-        let Self { id, ref state, .. } = *self;
+        let Self { id: _, ref state, .. } = *self;
         let state = state.lock().unwrap();
         let mut sum_quota: isize = 0;
 
@@ -198,7 +197,7 @@ impl State {
             let mutual_borrower = old_transfer
                 .keys()
                 .into_iter()
-                .filter(|(s, r)| *r == *sender)
+                .filter(|(_s, r)| *r == *sender)
                 .map(|key| *key)
                 .collect::<Vec<(usize, usize)>>();
             if mutual_borrower.len() != 0 {

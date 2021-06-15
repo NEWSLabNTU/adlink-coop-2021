@@ -511,7 +511,7 @@ mod tests {
     async fn reliable_broadcast_test() -> Result<()> {
         pretty_env_logger::init();
 
-        const NUM_PEERS: usize = 4;
+        const NUM_PEERS: usize = 8;
         const NUM_MSGS: usize = 1;
         const BASE_DIR: &str = "reliable_broadcast";
 

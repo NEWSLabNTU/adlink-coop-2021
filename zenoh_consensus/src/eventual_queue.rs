@@ -337,7 +337,7 @@ impl EventualQueue {
                                 }
 
                                 State::Pop {
-                                    pop_ack_cnt,
+                                    pop_ack_cnt: _,
                                     to_pop,
                                 } => {
                                     let peer_id: usize =
@@ -422,7 +422,7 @@ impl EventualQueue {
                                 }
                                 State::PreRequest {
                                     ack_count,
-                                    unattended_requests,
+                                    unattended_requests:_,
                                     idx,
                                 } => {
                                     //let req_type = format!("{:?}", change.value);

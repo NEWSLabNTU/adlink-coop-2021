@@ -47,7 +47,7 @@ impl NPCounter {
 
                             // merge state from peer with ours
                             let peer_state: State = change.value.unwrap().deserialize_to()?;
-                            state.lock().unwrap().merge_assign(&peer_state);
+                            state.lock().unwrap().merge_assign(&peer_state).unwrap();
 
                             Fallible::Ok(())
                         }
@@ -77,7 +77,7 @@ impl NPCounter {
     }
 
     pub async fn get(&self) -> isize {
-        let Self { id, ref state, .. } = *self;
+        let Self { id:_, ref state, .. } = *self;
         let state = state.lock().unwrap();
         let sum_pos: usize = state.pos_count.iter().sum();
         let sum_neg: usize = state.neg_count.iter().sum();

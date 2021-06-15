@@ -38,7 +38,7 @@ impl NPCounterHasmap {
                             eprintln!("peer {} received update from peer {}", id, peer_id);
                             // merge state from peer with ours
                             let peer_state: State = change.value.unwrap().deserialize_to()?;
-                            state.lock().unwrap().merge_assign(&peer_state);
+                            state.lock().unwrap().merge_assign(&peer_state).unwrap();
 
                             Fallible::Ok(())
                         }
@@ -72,7 +72,7 @@ impl NPCounterHasmap {
     }
 
     pub async fn get(&self) -> isize {
-        let Self { id, ref state, .. } = *self;
+        let Self { id:_, ref state, .. } = *self;
         let state = state.lock().unwrap();
         let mut sum_pos: usize = 0;
         let mut sum_neg: usize = 0;
