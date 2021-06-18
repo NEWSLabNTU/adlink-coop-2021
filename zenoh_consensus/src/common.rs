@@ -8,14 +8,18 @@ pub use futures::{
 pub use log::{debug, warn};
 pub use owning_ref::ArcRef;
 pub use rand::prelude::*;
-pub use serde::{de::DeserializeOwned, Deserialize, Serialize};
+pub use serde::{
+    de::{DeserializeOwned, Error as _},
+    Deserialize, Deserializer, Serialize, Serializer,
+};
 pub use std::{
     borrow::Borrow,
     cell::Cell,
     cmp::{max, min},
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     convert::{TryFrom, TryInto},
     future::Future,
+    hash::{Hash, Hasher},
     marker::PhantomData,
     mem,
     pin::Pin,
