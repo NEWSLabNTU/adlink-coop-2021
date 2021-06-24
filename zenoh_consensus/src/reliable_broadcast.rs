@@ -11,6 +11,7 @@ pub fn new<T>(
     id: impl AsRef<str>,
     max_rounds: usize,
     timeout: Duration,
+    extra_rounds:usize,
 ) -> (Sender<T>, Receiver<Msg<T>>)
 where
     T: 'static + Send + Sync + Serialize + DeserializeOwned,
@@ -41,6 +42,7 @@ where
         zenoh_tx.clone(),
         peers.clone(),
         contexts.clone(),
+        extra_rounds.clone(),
     ))
     .map(|result: Result<Result<()>, _>| Fallible::Ok(result??));
 
@@ -131,6 +133,7 @@ async fn recv_worker<T>(
     zenoh_tx: ZenohSender<Message<T>>,
     peers: Arc<DashSet<String>>,
     contexts: Arc<DashMap<(String, usize), Context<T>>>,
+    extra_rounds:usize
 ) -> Result<()>
 where
     T: 'static + Send + Sync + Serialize + DeserializeOwned,
@@ -189,6 +192,7 @@ where
                                     zenoh_tx.clone(),
                                     echo_count_rx,
                                     data,
+                                    extra_rounds,
                                 ))
                                 .map(|result| Fallible::Ok(result??))
                                 .boxed();
@@ -266,6 +270,7 @@ async fn coordinate_worker<T>(
     zenoh_tx: ZenohSender<Message<T>>,
     mut echo_count_rx: watch::Receiver<usize>,
     data: T,
+    extra_rounds: usize,
 ) -> Result<Option<Msg<T>>>
 where
     T: 'static + Send + Sync + Serialize + DeserializeOwned,
@@ -280,35 +285,38 @@ where
         .await?;
 
     let mut accepted = false;
+    let mut accepted_round_cnt = 0;
 
     'round_loop: for round in 0..max_rounds {
         debug!("{} start round {}", peer_name, round);
 
         let until = Instant::now() + timeout;
-        loop {
-            let result = utils::timeout_until(until, echo_count_rx.changed()).await;
-            match result {
-                Ok(result) => {
-                    result?;
+        if accepted == false{
+            loop {
+                let result = utils::timeout_until(until, echo_count_rx.changed()).await;
+                match result {
+                    Ok(result) => {
+                        result?;
+                    }
+                    Err(_) => {
+                        debug!(
+                            "{} timeout in 1st phase: sender={}, seq={}",
+                            id, peer_name, seq
+                        );
+                        continue 'round_loop;
+                    }
                 }
-                Err(_) => {
-                    debug!(
-                        "{} timeout in 1st phase: sender={}, seq={}",
-                        id, peer_name, seq
-                    );
-                    continue 'round_loop;
+
+                let echo_count = *echo_count_rx.borrow();
+                let num_peers = peers.len();
+                debug!(
+                    "{} in 1st phase: sender={}, seq={}, {} echos, {} peers",
+                    id, peer_name, seq, echo_count, num_peers
+                );
+
+                if echo_count * 3 >= num_peers {
+                    break;
                 }
-            }
-
-            let echo_count = *echo_count_rx.borrow();
-            let num_peers = peers.len();
-            debug!(
-                "{} in 1st phase: sender={}, seq={}, {} echos, {} peers",
-                id, peer_name, seq, echo_count, num_peers
-            );
-
-            if echo_count * 3 >= num_peers {
-                break;
             }
         }
 
@@ -320,33 +328,41 @@ where
             .await?;
 
         let until = Instant::now() + timeout;
-        loop {
-            let result = utils::timeout_until(until, echo_count_rx.changed()).await;
-            match result {
-                Ok(result) => {
-                    result?;
+        if accepted == false{
+            loop {
+                let result = utils::timeout_until(until, echo_count_rx.changed()).await;
+                match result {
+                    Ok(result) => {
+                        result?;
+                    }
+                    Err(_) => {
+                        debug!(
+                            "{} timeout in 1st phase: sender={}, seq={}",
+                            id, peer_name, seq
+                        );
+                        continue 'round_loop;
+                    }
                 }
-                Err(_) => {
-                    debug!(
-                        "{} timeout in 1st phase: sender={}, seq={}",
-                        id, peer_name, seq
-                    );
-                    continue 'round_loop;
+    
+                let echo_count = *echo_count_rx.borrow();
+                let num_peers = peers.len();
+                debug!(
+                    "{} in 2nd phase: sender={}, seq={}, {} echos, {} peers",
+                    id, peer_name, seq, echo_count, num_peers
+                );
+    
+                if echo_count * 3 >= num_peers * 2 {
+                    accepted = true;
+                    break;
                 }
-            }
-
-            let echo_count = *echo_count_rx.borrow();
-            let num_peers = peers.len();
-            debug!(
-                "{} in 2nd phase: sender={}, seq={}, {} echos, {} peers",
-                id, peer_name, seq, echo_count, num_peers
-            );
-
-            if echo_count * 3 >= num_peers * 2 {
-                accepted = true;
-                break 'round_loop;
             }
         }
+        accepted_round_cnt += 1;
+        if accepted_round_cnt > extra_rounds{
+            break 'round_loop;
+        }
+            
+        
     }
 
     if accepted {
@@ -523,7 +539,7 @@ mod tests {
             let name = format!("peer_{}", peer_index);
             let path = zenoh::path(BASE_DIR);
 
-            let (tx, mut rx) = super::new(zenoh, path, &name, 4, Duration::from_millis(100));
+            let (tx, mut rx) = super::new(zenoh, path, &name, 4, Duration::from_millis(100), 3);
 
             let producer = {
                 let name = name.clone();
