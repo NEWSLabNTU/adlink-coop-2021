@@ -52,3 +52,89 @@ impl NTP64Ext for uhlc::NTP64 {
         duration.into()
     }
 }
+
+pub fn hash_uhlc_timestamp<H>(timestamp: &uhlc::Timestamp, state: &mut H)
+where
+    H: Hasher,
+{
+    timestamp.get_id().hash(state);
+    hash_uhlc_ntp64(timestamp.get_time(), state);
+}
+
+pub fn hash_uhlc_ntp64<H>(timestamp: &uhlc::NTP64, state: &mut H)
+where
+    H: Hasher,
+{
+    timestamp.as_u64().hash(state);
+}
+
+pub mod serde_uhlc_timestamp {
+    use super::*;
+
+    pub fn serialize<S>(timestamp: &uhlc::Timestamp, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        format!("{}", timestamp).serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<uhlc::Timestamp, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let text = String::deserialize(deserializer)?;
+        let timestamp = uhlc::Timestamp::from_str(&text)
+            .map_err(|err| D::Error::custom(format!("invalid timestamp '{}': {:?}", text, err)))?;
+        Ok(timestamp)
+    }
+}
+
+pub mod serde_uhlc_ntp64 {
+    use super::*;
+
+    pub fn serialize<S>(timestamp: &uhlc::NTP64, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        timestamp.as_u64().serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<uhlc::NTP64, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = u64::deserialize(deserializer)?;
+        Ok(NTP64::from_u64(value))
+    }
+}
+
+pub mod serde_uhlc_id {
+    use super::*;
+
+    pub fn serialize<S>(id: &uhlc::ID, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        id.as_slice().serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<uhlc::ID, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes = Vec::<u8>::deserialize(deserializer)?;
+        let len = bytes.len();
+
+        if len > ID::MAX_SIZE {
+            return Err(D::Error::custom(format!(
+                "invalid ID: the length of ID is at most {} bytes",
+                ID::MAX_SIZE
+            )));
+        }
+
+        let mut array = [0; ID::MAX_SIZE];
+        array[0..len].copy_from_slice(&bytes);
+
+        Ok(ID::new(len, array))
+    }
+}
