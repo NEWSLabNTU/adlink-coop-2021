@@ -286,95 +286,109 @@ where
 
     let mut accepted = false;
     let mut accepted_round_cnt = 0;
+    let mut send_echo_flag = false;
 
     'round_loop: for round in 0..max_rounds {
         debug!("{} start round {}", peer_name, round);
-
         let until = Instant::now() + timeout;
         if accepted == false{
-            loop {
-                let result = utils::timeout_until(until, echo_count_rx.changed()).await;
-                match result {
-                    Ok(result) => {
-                        result?;
-                    }
-                    Err(_) => {
-                        debug!(
-                            "{} timeout in 1st phase: sender={}, seq={}",
-                            id, peer_name, seq
-                        );
-                        continue 'round_loop;
-                    }
+            
+            let result = utils::timeout_until(until, echo_count_rx.changed()).await;
+            match result {
+                Ok(result) => {
+                    result?;
                 }
-
-                let echo_count = *echo_count_rx.borrow();
-                let num_peers = peers.len();
-                debug!(
-                    "{} in 1st phase: sender={}, seq={}, {} echos, {} peers",
-                    id, peer_name, seq, echo_count, num_peers
-                );
-
-                if echo_count * 3 >= num_peers {
-                    break;
+                Err(_) => {
+                    debug!(
+                        "{} timeout in 1st phase: sender={}, seq={}",
+                        id, peer_name, seq
+                    );
+                    continue 'round_loop;
                 }
             }
+
+                
+                // debug!(
+                //     "{} in 1st phase: sender={}, seq={}, {} echos, {} peers",
+                //     id, peer_name, seq, echo_count, num_peers
+                // );
+
+                
+            
         }
+        let echo_count = *echo_count_rx.borrow();
+        let num_peers = peers.len();
+        if echo_count * 3 >= num_peers {
+            send_echo_flag = true;
+        }
+        
 
-        zenoh_tx
-            .send(Message::Echo {
-                seq,
-                sender: peer_name.clone(),
-            })
-            .await?;
-
-        let until = Instant::now() + timeout;
+        // let until = Instant::now() + timeout;
         if accepted == false{
-            loop {
-                let result = utils::timeout_until(until, echo_count_rx.changed()).await;
-                match result {
-                    Ok(result) => {
-                        result?;
-                    }
-                    Err(_) => {
-                        debug!(
-                            "{} timeout in 1st phase: sender={}, seq={}",
-                            id, peer_name, seq
-                        );
-                        continue 'round_loop;
-                    }
+            
+            let result = utils::timeout_until(until, echo_count_rx.changed()).await;
+            match result {
+                Ok(result) => {
+                    result?;
                 }
-    
-                let echo_count = *echo_count_rx.borrow();
-                let num_peers = peers.len();
-                debug!(
-                    "{} in 2nd phase: sender={}, seq={}, {} echos, {} peers",
-                    id, peer_name, seq, echo_count, num_peers
-                );
-    
-                if echo_count * 3 >= num_peers * 2 {
-                    accepted = true;
-                    break;
+                Err(_) => {
+                    debug!(
+                        "{} timeout in 1st phase: sender={}, seq={}",
+                        id, peer_name, seq
+                    );
+                    continue 'round_loop;
                 }
             }
+
+            let echo_count = *echo_count_rx.borrow();
+            let num_peers = peers.len();
+            debug!(
+                "{} in 2nd phase: sender={}, seq={}, {} echos, {} peers",
+                id, peer_name, seq, echo_count, num_peers
+            );
+
+            if echo_count * 3 >= num_peers * 2 {
+                accepted = true;
+                
+            }
+            
         }
         accepted_round_cnt += 1;
         if accepted_round_cnt > extra_rounds{
             break 'round_loop;
         }
+
+        let cur_time = Instant::now();
+        if cur_time >  until{
+            tokio::time::sleep(cur_time-until).await;
+        }
+        if send_echo_flag{
+            zenoh_tx
+            .send(Message::Echo {
+                seq,
+                sender: peer_name.clone(),
+            })
+            .await?;
+        }
+            
+
             
         
     }
-
     if accepted {
         debug!("{} accepts, sender={}, seq={}", id, peer_name, seq);
         Ok(Some(Msg {
-            data,
+            data: Some(data),
             sender: peer_name,
             seq,
         }))
     } else {
         debug!("{} rejects, sender={}, seq={}", id, peer_name, seq);
-        Ok(None)
+        Ok(Some(Msg {
+            data: None,
+            sender: peer_name,
+            seq,
+        }))
     }
 }
 
@@ -431,7 +445,7 @@ struct Context<T> {
 pub struct Msg<T> {
     pub sender: String,
     pub seq: usize,
-    pub data: T,
+    pub data: Option<T>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -557,13 +571,41 @@ mod tests {
                     Fallible::Ok(())
                 }
             };
-
             let consumer = async move {
+                let mut cnt = 0;
+                let until = Instant::now() + Duration::from_secs(10);
                 for _ in 0..(NUM_PEERS * NUM_MSGS) {
-                    let msg = rx.recv().await?.unwrap();
+                    let msg;
+                    let result = utils::timeout_until(until, rx.recv()).await;
+                    match result {
+                        Ok(result) => {
+                            msg = result?.unwrap();
+                        }
+                        Err(_) => {
+                            continue;
+                        }
+                    }
+                    // let msg = rx.recv().await?.unwrap();
+                    if msg.data != None{
+                        eprintln!(
+                            "{} received sender={}, seq={}, data={}",
+                            name, msg.sender, msg.seq, msg.data.unwrap()
+                        );
+                    }
+                    else{
+                        eprintln!(
+                            "{} timeout in sender={}, seq={}",
+                            name, msg.sender, msg.seq
+                        );
+                    }
+                    cnt += 1;
+                    
+                        
+                }
+                if cnt != NUM_PEERS{
                     eprintln!(
-                        "{} received sender={}, seq={}, data={}",
-                        name, msg.sender, msg.seq, msg.data
+                        "{} lost {} broadcast messages.",
+                        name, (NUM_PEERS - cnt)
                     );
                 }
 
