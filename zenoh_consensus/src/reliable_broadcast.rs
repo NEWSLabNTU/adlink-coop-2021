@@ -288,7 +288,7 @@ where
     let mut accepted_round_cnt = 0;
     let mut send_echo_flag = false;
 
-    'round_loop: for round in 0..max_rounds {
+    'round_loop: for round in 0..max_rounds+extra_rounds {
         debug!("{} start round {}", peer_name, round);
         let until = Instant::now() + timeout;
         if accepted == false{
@@ -353,7 +353,9 @@ where
             }
             
         }
-        accepted_round_cnt += 1;
+        if accepted{
+            accepted_round_cnt += 1;
+        }
         if accepted_round_cnt > extra_rounds{
             break 'round_loop;
         }
