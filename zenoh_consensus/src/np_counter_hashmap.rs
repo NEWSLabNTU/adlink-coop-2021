@@ -72,7 +72,9 @@ impl NPCounterHasmap {
     }
 
     pub async fn get(&self) -> isize {
-        let Self { id:_, ref state, .. } = *self;
+        let Self {
+            id: _, ref state, ..
+        } = *self;
         let state = state.lock().unwrap();
         let mut sum_pos: usize = 0;
         let mut sum_neg: usize = 0;

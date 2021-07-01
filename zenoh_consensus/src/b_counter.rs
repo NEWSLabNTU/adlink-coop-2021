@@ -112,7 +112,9 @@ impl BCounter {
     }
 
     pub async fn get(&self) -> isize {
-        let Self { id: _, ref state, .. } = *self;
+        let Self {
+            id: _, ref state, ..
+        } = *self;
         let state = state.lock().unwrap();
         let mut sum_quota: isize = 0;
 

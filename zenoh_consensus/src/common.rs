@@ -8,16 +8,23 @@ pub use futures::{
 pub use log::{debug, warn};
 pub use owning_ref::ArcRef;
 pub use rand::prelude::*;
-pub use serde::{de::DeserializeOwned, Deserialize, Serialize};
+pub use serde::{
+    de::{DeserializeOwned, Error as _},
+    ser::Error as _,
+    Deserialize, Deserializer, Serialize, Serializer,
+};
 pub use std::{
     borrow::Borrow,
     cell::Cell,
     cmp::{max, min},
     collections::HashMap,
     convert::{TryFrom, TryInto},
+    fs,
     future::Future,
+    hash::{Hash, Hasher},
     marker::PhantomData,
     mem,
+    path::Path,
     pin::Pin,
     str::*,
     sync::{
@@ -27,7 +34,7 @@ pub use std::{
     thread,
     time::{Duration, Instant},
 };
-pub use tokio::sync::{mpsc, watch, Notify};
+pub use tokio::sync::{mpsc, oneshot, watch, Notify};
 pub use uhlc::*;
 pub use zenoh::{Selector, Value, Workspace, Zenoh};
 

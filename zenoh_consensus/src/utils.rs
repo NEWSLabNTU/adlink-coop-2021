@@ -89,52 +89,52 @@ pub mod serde_uhlc_timestamp {
     }
 }
 
-pub mod serde_uhlc_ntp64 {
-    use super::*;
+// pub mod serde_uhlc_ntp64 {
+//     use super::*;
 
-    pub fn serialize<S>(timestamp: &uhlc::NTP64, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        timestamp.as_u64().serialize(serializer)
-    }
+//     pub fn serialize<S>(timestamp: &uhlc::NTP64, serializer: S) -> Result<S::Ok, S::Error>
+//     where
+//         S: Serializer,
+//     {
+//         timestamp.as_u64().serialize(serializer)
+//     }
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<uhlc::NTP64, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let value = u64::deserialize(deserializer)?;
-        Ok(NTP64::from_u64(value))
-    }
-}
+//     pub fn deserialize<'de, D>(deserializer: D) -> Result<uhlc::NTP64, D::Error>
+//     where
+//         D: Deserializer<'de>,
+//     {
+//         let value = u64::deserialize(deserializer)?;
+//         Ok(NTP64::from_u64(value))
+//     }
+// }
 
-pub mod serde_uhlc_id {
-    use super::*;
+// pub mod serde_uhlc_id {
+//     use super::*;
 
-    pub fn serialize<S>(id: &uhlc::ID, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        id.as_slice().serialize(serializer)
-    }
+//     pub fn serialize<S>(id: &uhlc::ID, serializer: S) -> Result<S::Ok, S::Error>
+//     where
+//         S: Serializer,
+//     {
+//         id.as_slice().serialize(serializer)
+//     }
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<uhlc::ID, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let bytes = Vec::<u8>::deserialize(deserializer)?;
-        let len = bytes.len();
+//     pub fn deserialize<'de, D>(deserializer: D) -> Result<uhlc::ID, D::Error>
+//     where
+//         D: Deserializer<'de>,
+//     {
+//         let bytes = Vec::<u8>::deserialize(deserializer)?;
+//         let len = bytes.len();
 
-        if len > ID::MAX_SIZE {
-            return Err(D::Error::custom(format!(
-                "invalid ID: the length of ID is at most {} bytes",
-                ID::MAX_SIZE
-            )));
-        }
+//         if len > ID::MAX_SIZE {
+//             return Err(D::Error::custom(format!(
+//                 "invalid ID: the length of ID is at most {} bytes",
+//                 ID::MAX_SIZE
+//             )));
+//         }
 
-        let mut array = [0; ID::MAX_SIZE];
-        array[0..len].copy_from_slice(&bytes);
+//         let mut array = [0; ID::MAX_SIZE];
+//         array[0..len].copy_from_slice(&bytes);
 
-        Ok(ID::new(len, array))
-    }
-}
+//         Ok(ID::new(len, array))
+//     }
+// }

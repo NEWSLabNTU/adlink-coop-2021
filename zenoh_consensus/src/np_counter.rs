@@ -77,7 +77,9 @@ impl NPCounter {
     }
 
     pub async fn get(&self) -> isize {
-        let Self { id:_, ref state, .. } = *self;
+        let Self {
+            id: _, ref state, ..
+        } = *self;
         let state = state.lock().unwrap();
         let sum_pos: usize = state.pos_count.iter().sum();
         let sum_neg: usize = state.neg_count.iter().sum();

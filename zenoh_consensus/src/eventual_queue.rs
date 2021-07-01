@@ -422,7 +422,7 @@ impl EventualQueue {
                                 }
                                 State::PreRequest {
                                     ack_count,
-                                    unattended_requests:_,
+                                    unattended_requests: _,
                                     idx,
                                 } => {
                                     //let req_type = format!("{:?}", change.value);
