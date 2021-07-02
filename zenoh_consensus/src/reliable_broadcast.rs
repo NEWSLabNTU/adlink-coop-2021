@@ -7,7 +7,7 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use message::*;
 
-const REPEATING_SEND_PERIOD: Duration = Duration::from_millis(100);
+const REPEATING_SEND_PERIOD: Duration = Duration::from_millis(40);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Config {
@@ -20,8 +20,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             max_rounds: 3,
-            recv_timeout: Duration::from_millis(100),
-            round_timeout: Duration::from_millis(210),
+            recv_timeout: Duration::from_millis(50),
+            round_timeout: Duration::from_millis(110),
         }
     }
 }
@@ -780,12 +780,18 @@ mod tests {
             num_peers: usize,
             num_msgs: usize,
             zenoh_dir: String,
+            recv_timeout_ms: usize,
+            round_timeout_ms: usize,
+            max_rounds: usize,
         }
 
         let TestConfig {
             num_peers,
             num_msgs,
             zenoh_dir,
+            recv_timeout_ms,
+            round_timeout_ms,
+            max_rounds,
         } = {
             let text = fs::read_to_string(
                 Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -804,7 +810,16 @@ mod tests {
             let name = format!("peer_{}", peer_index);
             let path = zenoh::path(&zenoh_dir);
 
-            let (tx, mut rx) = super::new(zenoh, path, &name, Default::default())?;
+            let (tx, mut rx) = super::new(
+                zenoh,
+                path,
+                &name,
+                super::Config {
+                    recv_timeout: Duration::from_millis(recv_timeout_ms as u64),
+                    round_timeout: Duration::from_millis(round_timeout_ms as u64),
+                    max_rounds,
+                },
+            )?;
 
             let producer = {
                 let name = name.clone();
