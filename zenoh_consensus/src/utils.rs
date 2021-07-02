@@ -42,6 +42,7 @@ impl ValueExt for Value {
 
 pub trait NTP64Ext {
     fn from_u64(value: u64) -> Self;
+    fn instant(&self) -> Instant;
 }
 
 impl NTP64Ext for uhlc::NTP64 {
@@ -50,6 +51,30 @@ impl NTP64Ext for uhlc::NTP64 {
         let subsec_nanos = ((value & 0xFFFF_FFFFu64) * 1_000_000_000 / (1u64 << 32)) as u32;
         let duration = Duration::new(secs, subsec_nanos);
         duration.into()
+    }
+
+    fn instant(&self) -> Instant {
+        let sys_now = SystemTime::now();
+        let instant_now = Instant::now();
+        let sys_time = self.to_system_time();
+
+        if sys_now >= sys_time {
+            let elapsed = sys_now.duration_since(sys_time).unwrap();
+            instant_now - elapsed
+        } else {
+            let elapsed = sys_time.duration_since(sys_now).unwrap();
+            instant_now + elapsed
+        }
+    }
+}
+
+pub trait UhlcTimestampExt {
+    fn instant(&self) -> Instant;
+}
+
+impl UhlcTimestampExt for uhlc::Timestamp {
+    fn instant(&self) -> Instant {
+        self.get_time().instant()
     }
 }
 

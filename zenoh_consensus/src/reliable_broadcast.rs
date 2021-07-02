@@ -7,6 +7,8 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use message::*;
 
+const REPEATING_SEND_PERIOD: Duration = Duration::from_millis(100);
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Config {
     pub max_rounds: usize,
@@ -85,13 +87,14 @@ where
     let tx = Sender {
         id: id.to_string(),
         seq_counter: AtomicUsize::new(0),
-        // zenoh,
-        // send_key,
+        zenoh,
+        send_key,
         // recv_selector,
         zenoh_tx,
         // peers,
         // contexts,
         // recv_timeout: config.recv_timeout,
+        round_timeout: config.round_timeout,
         hlc,
     };
     let rx = Receiver { stream };
@@ -108,13 +111,13 @@ where
     id: String,
     seq_counter: AtomicUsize,
     #[derivative(Debug = "ignore")]
-    // zenoh: Arc<Zenoh>,
-    // send_key: zenoh::Path,
+    zenoh: Arc<Zenoh>,
+    send_key: zenoh::Path,
     // recv_selector: zenoh::Selector,
     zenoh_tx: ZenohSender<Message<T>>,
     #[derivative(Debug = "ignore")]
     // peers: Arc<DashSet<String>>,
-    // recv_timeout: Duration,
+    round_timeout: Duration,
     // contexts: Arc<DashMap<(String, usize), Context<T>>>,
     #[derivative(Debug = "ignore")]
     hlc: Arc<HLC>,
@@ -126,16 +129,23 @@ where
 {
     pub async fn send(&self, data: T) -> Result<()> {
         let seq = self.seq_counter.fetch_add(1, Ordering::SeqCst);
-        self.zenoh_tx
-            .send(
-                Broadcast {
-                    seq,
-                    data,
-                    timestamp: self.hlc.new_timestamp(),
-                }
-                .into(),
-            )
-            .await?;
+        let msg: Message<_> = Broadcast {
+            seq,
+            data,
+            timestamp: self.hlc.new_timestamp(),
+        }
+        .into();
+
+        let until = Instant::now() + self.round_timeout;
+        repeating_send(
+            self.zenoh.clone(),
+            self.send_key.clone(),
+            REPEATING_SEND_PERIOD,
+            None,
+            until,
+            msg,
+        )
+        .await?;
         Ok(())
     }
 }
@@ -165,7 +175,7 @@ async fn recv_worker<T>(
     max_rounds: usize,
     recv_timeout: Duration,
     round_timeout: Duration,
-    _send_key: zenoh::Path,
+    send_key: zenoh::Path,
     recv_selector: zenoh::Selector,
     job_tx: mpsc::Sender<Pin<Box<dyn Send + Future<Output = Result<Option<Msg<T>>>>>>>,
     zenoh_tx: ZenohSender<Message<T>>,
@@ -191,8 +201,9 @@ where
 
     debug!("{} is listening", id);
 
-    while let Some(change) = change_stream.next().await {
-        // let when = Instant::now();
+    let mut pending_echos = HashMap::new();
+
+    'stream_loop: while let Some(change) = change_stream.next().await {
         let peer_name = change.path.last_segment();
 
         match change.kind {
@@ -217,18 +228,14 @@ where
                         debug!("{} -> {}: broadcast, seq={}", peer_name, id, seq);
 
                         let key = (peer_name.to_string(), seq);
-                        let entry = contexts.entry(key);
+                        let entry = contexts.entry(key.clone());
 
                         match entry {
                             dashmap::mapref::entry::Entry::Occupied(_) => {
-                                warn!(
-                                    "{} received duplicated broadcast from {} (seq={})",
-                                    id, peer_name, seq
-                                );
+                                // ignore duplicated broadcast
                             }
                             dashmap::mapref::entry::Entry::Vacant(entry) => {
-                                let (echo_count_tx, echo_count_rx) = watch::channel(0);
-                                // let zenoh_tx = ZenohSender::new(zenoh.clone(), send_key.clone());
+                                let (worker_tx, worker_rx) = mpsc::channel(8);
 
                                 // save future to some place and await it
                                 let future = tokio::spawn(coordinate_worker(
@@ -240,8 +247,9 @@ where
                                     round_timeout,
                                     peers.clone(),
                                     hlc.clone(),
-                                    zenoh_tx.clone(),
-                                    echo_count_rx,
+                                    zenoh.clone(),
+                                    send_key.clone(),
+                                    worker_rx,
                                     data,
                                 ))
                                 .map(|result| Fallible::Ok(result??))
@@ -249,12 +257,20 @@ where
 
                                 let result = job_tx.send(future).await;
                                 if result.is_err() {
-                                    break;
+                                    break 'stream_loop;
+                                }
+
+                                // flush out pending echos if any
+                                for msg in pending_echos.remove(&key).into_iter().flatten() {
+                                    let result = worker_tx.send(msg).await;
+                                    if result.is_err() {
+                                        break 'stream_loop;
+                                    }
                                 }
 
                                 let context = Context {
                                     finished: false,
-                                    echo_count_tx,
+                                    worker_tx,
                                     _phantom: PhantomData,
                                 };
 
@@ -268,8 +284,8 @@ where
                     Message::Echo(Echo {
                         seq,
                         sender,
-                        timestamp: _,
-                        round: _,
+                        timestamp,
+                        round,
                     }) => {
                         debug!(
                             "{} -> {}: echo, seq={}, sender={}",
@@ -288,13 +304,31 @@ where
                                     "{} -> {}: received echo (sender={}, seq={}), but broadcast was not received",
                                     peer_name, id, sender, seq
                                 );
+
+                                // save the echo message
+                                // TODO: clear pending echos periodically
+                                let key = (sender, seq);
+                                match pending_echos.entry(key) {
+                                    hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                                    hash_map::Entry::Vacant(entry) => entry.insert(vec![]),
+                                }
+                                .push(EchoNotify {
+                                    peer: peer_name.to_owned(),
+                                    round,
+                                    timestamp,
+                                });
+
                                 continue;
                             }
                         };
 
                         if !context.finished {
-                            let new_echo_count = *context.echo_count_tx.borrow() + 1;
-                            let result = context.echo_count_tx.send(new_echo_count);
+                            let msg = EchoNotify {
+                                peer: peer_name.to_owned(),
+                                round,
+                                timestamp,
+                            };
+                            let result = context.worker_tx.send(msg).await;
 
                             if result.is_err() {
                                 context.finished = true;
@@ -305,9 +339,7 @@ where
             }
             zenoh::ChangeKind::Patch => {}
             zenoh::ChangeKind::Delete => {
-                // if peer_name == &*id {
-                //     break;
-                // }
+                // TODO: decrease peer count
             }
         }
     }
@@ -318,14 +350,15 @@ where
 async fn coordinate_worker<T>(
     id: String,
     seq: usize,
-    peer_name: String,
+    sender: String,
     max_rounds: usize,
     recv_timeout: Duration,
     round_timeout: Duration,
     peers: Arc<DashSet<String>>,
     hlc: Arc<HLC>,
-    zenoh_tx: ZenohSender<Message<T>>,
-    mut echo_count_rx: watch::Receiver<usize>,
+    zenoh: Arc<Zenoh>,
+    send_key: zenoh::Path,
+    mut worker_rx: mpsc::Receiver<EchoNotify>,
     data: T,
 ) -> Result<Option<Msg<T>>>
 where
@@ -334,96 +367,145 @@ where
     // TODO: determine start time from timestamp in broadcast message
     let init_time = Instant::now();
 
+    // wait until broadcasting finishes (round 1 in paper)
     {
         let until = init_time + round_timeout;
         tokio::time::sleep_until(until.into()).await;
     }
 
-    zenoh_tx
-        .send(
-            Echo {
-                seq,
-                sender: peer_name.clone(),
-                timestamp: hlc.new_timestamp(),
-                round: 0,
-            }
-            .into(),
-        )
-        .await?;
-
+    let mut sending_futures = HashMap::new();
+    let mut pending_echos: Vec<EchoNotify> = vec![];
     let mut accepted = false;
     let mut last_round = 0;
+
+    // in round 0 (round 2 in paper), send echo unconditionally
+    {
+        let msg: Message<T> = Echo {
+            seq,
+            sender: sender.clone(),
+            timestamp: hlc.new_timestamp(),
+            round: 0,
+        }
+        .into();
+        let until = init_time + round_timeout * 2;
+        let future = tokio::spawn(repeating_send(
+            zenoh.clone(),
+            send_key.clone(),
+            REPEATING_SEND_PERIOD,
+            None,
+            until,
+            msg,
+        ))
+        .map(|result| Fallible::Ok(result??));
+        sending_futures.insert(0, future.boxed());
+    };
 
     'round_loop: for round in 1..max_rounds {
         last_round = round;
 
+        // wait until round starting time
         let round_start_time = init_time + round_timeout * round as u32;
         tokio::time::sleep_until(round_start_time.into()).await;
 
         debug!(
             "{} start round {}, sender={}, seq={}",
-            id, round, peer_name, seq
+            id, round, sender, seq
         );
-        let until = round_start_time + recv_timeout;
+
+        // join repeating sending worker in last 2 round
+        if round >= 2 {
+            sending_futures.remove(&(round - 2)).unwrap().await?;
+        }
+
+        let mut echo_peer_set = HashSet::new();
+
+        // process pending echos
+        pending_echos.drain(..).for_each(|echo| {
+            assert!(echo.round == round - 1);
+            echo_peer_set.insert(echo.peer);
+        });
 
         // in 1st phase, collect echos until echo_count >= 1/3 nv
+        let until = round_start_time + recv_timeout;
         'first_phase: loop {
-            let result = utils::timeout_until(until, echo_count_rx.changed()).await;
+            let result = utils::timeout_until(until, worker_rx.recv()).await;
             match result {
-                Ok(result) => {
-                    if result.is_err() {
-                        todo!();
-                    };
+                Ok(Some(echo)) => {
+                    if round - 1 != echo.round {
+                        if round == echo.round {
+                            pending_echos.push(echo);
+                        }
+                        continue 'first_phase;
+                    }
 
-                    let echo_count = *echo_count_rx.borrow();
+                    echo_peer_set.insert(echo.peer);
+
+                    let echo_count = echo_peer_set.len();
                     let num_peers = peers.len();
                     debug!(
                         "{} in 1st phase: sender={}, seq={}, {} echos, {} peers",
-                        id, peer_name, seq, echo_count, num_peers
+                        id, sender, seq, echo_count, num_peers
                     );
 
                     if echo_count * 3 >= num_peers {
                         break 'first_phase;
                     }
                 }
+                Ok(None) => {
+                    todo!();
+                }
                 Err(_) => {
                     debug!(
                         "{} timeout in 1st phase: sender={}, seq={}",
-                        id, peer_name, seq
+                        id, sender, seq
                     );
                     continue 'round_loop;
                 }
             }
         }
 
-        // broadcast echo
-        zenoh_tx
-            .send(
-                Echo {
-                    seq,
-                    sender: peer_name.clone(),
-                    timestamp: hlc.new_timestamp(),
-                    round,
-                }
-                .into(),
-            )
-            .await?;
+        // send echo
+        {
+            let msg: Message<T> = Echo {
+                seq,
+                sender: sender.clone(),
+                timestamp: hlc.new_timestamp(),
+                round,
+            }
+            .into();
+            let start = init_time + round_timeout * (round + 1) as u32;
+            let until = init_time + round_timeout * (round + 2) as u32;
+            let future = tokio::spawn(repeating_send(
+                zenoh.clone(),
+                send_key.clone(),
+                REPEATING_SEND_PERIOD,
+                Some(start),
+                until,
+                msg,
+            ))
+            .map(|result| Fallible::Ok(result??));
+            sending_futures.insert(round, future.boxed());
+        };
 
         // in 2nd phase, collect echos until echo_ount >= 2/3 nv
         let until = round_start_time + recv_timeout * 2;
-        loop {
-            let result = utils::timeout_until(until, echo_count_rx.changed()).await;
+        'second_phase: loop {
+            let result = utils::timeout_until(until, worker_rx.recv()).await;
             match result {
-                Ok(result) => {
-                    if result.is_err() {
-                        todo!();
+                Ok(Some(echo)) => {
+                    if round - 1 != echo.round {
+                        if round == echo.round {
+                            pending_echos.push(echo);
+                        }
+                        continue 'second_phase;
                     }
+                    echo_peer_set.insert(echo.peer);
 
-                    let echo_count = *echo_count_rx.borrow();
+                    let echo_count = echo_peer_set.len();
                     let num_peers = peers.len();
                     debug!(
                         "{} in 2nd phase: sender={}, seq={}, {} echos, {} peers",
-                        id, peer_name, seq, echo_count, num_peers
+                        id, sender, seq, echo_count, num_peers
                     );
 
                     if echo_count * 3 >= num_peers * 2 {
@@ -431,10 +513,13 @@ where
                         break 'round_loop;
                     }
                 }
+                Ok(None) => {
+                    todo!();
+                }
                 Err(_) => {
                     debug!(
                         "{} timeout in 1st phase: sender={}, seq={}",
-                        id, peer_name, seq
+                        id, sender, seq
                     );
                     continue 'round_loop;
                 }
@@ -445,34 +530,49 @@ where
     // if accepting early, unconditionally send echo in each round
     if accepted {
         for round in (last_round + 1)..max_rounds {
+            // wait until the round starting time
             let round_start_time = init_time + round_timeout * round as u32;
             tokio::time::sleep_until(round_start_time.into()).await;
-            zenoh_tx
-                .send(
-                    Echo {
-                        seq,
-                        sender: peer_name.clone(),
-                        round,
-                        timestamp: hlc.new_timestamp(),
-                    }
-                    .into(),
-                )
-                .await?;
+
+            // join sending worker in last 2 round
+            if round >= 2 {
+                sending_futures.remove(&(round - 2)).unwrap().await?;
+            }
+
+            let msg: Message<T> = Echo {
+                seq,
+                sender: sender.clone(),
+                timestamp: hlc.new_timestamp(),
+                round,
+            }
+            .into();
+            let start = init_time + round_timeout * (round + 1) as u32;
+            let until = init_time + round_timeout * (round + 2) as u32;
+            let future = tokio::spawn(repeating_send(
+                zenoh.clone(),
+                send_key.clone(),
+                REPEATING_SEND_PERIOD,
+                Some(start),
+                until,
+                msg,
+            ))
+            .map(|result| Fallible::Ok(result??));
+            sending_futures.insert(round, future.boxed());
         }
     }
 
     if accepted {
-        debug!("{} accepts, sender={}, seq={}", id, peer_name, seq);
+        debug!("{} accepts, sender={}, seq={}", id, sender, seq);
         Ok(Some(Msg {
             data: Some(data),
-            sender: peer_name,
+            sender,
             seq,
         }))
     } else {
-        debug!("{} rejects, sender={}, seq={}", id, peer_name, seq);
+        debug!("{} rejects, sender={}, seq={}", id, sender, seq);
         Ok(Some(Msg {
             data: None,
-            sender: peer_name,
+            sender,
             seq,
         }))
     }
@@ -522,60 +622,57 @@ async fn await_worker<T>(
 async fn repeating_send<T>(
     zenoh: Arc<Zenoh>,
     key: zenoh::Path,
-    data: T,
     send_timeout: Duration,
+    start: Option<Instant>,
     until: Instant,
+    data: T,
 ) -> Result<()>
 where
-    T: 'static + Clone + Send + Serialize,
+    T: 'static + Send + Serialize,
 {
     fn add_jitter(time: Instant) -> Instant {
-        const JITTER_MILLIS: isize = 5;
+        const JITTER_MICROS: isize = 3000;
         let mut rng = rand::thread_rng();
-        let jitter = rng.gen_range(-JITTER_MILLIS..=JITTER_MILLIS);
+        let jitter = rng.gen_range(-JITTER_MICROS..=JITTER_MICROS);
 
         if jitter >= 0 {
-            time + Duration::from_millis(jitter as u64)
+            time + Duration::from_micros(jitter as u64)
         } else {
-            time - Duration::from_millis(-jitter as u64)
+            time - Duration::from_micros(-jitter as u64)
         }
     }
 
-    tokio::spawn(async move {
-        let init_time = Instant::now();
+    if let Some(start) = start {
+        ensure!(start < until);
+        tokio::time::sleep_until(start.into()).await;
+    }
 
-        // 1st round
-        {
-            let send_until = add_jitter(init_time);
-            tokio::time::sleep_until(send_until.into()).await;
-            let msg = zenoh::Value::serialize_from(&data)?;
-            let workspace = zenoh.workspace(None).await?;
-            workspace.put(&key, msg).await?;
-        }
+    let init_time = Instant::now();
 
-        let mut send_until = add_jitter(init_time + send_timeout);
-        let mut round = 1;
+    // 1st round
+    {
+        let send_until = add_jitter(init_time);
+        tokio::time::sleep_until(send_until.into()).await;
+        let msg = zenoh::Value::serialize_from(&data)?;
+        let workspace = zenoh.workspace(None).await?;
+        workspace.put(&key, msg).await?;
+    }
 
-        loop {
-            tokio::select! {
-                _ = tokio::time::sleep_until(send_until.into()) => {
-                    let msg = zenoh::Value::serialize_from(&data)?;
-                    let workspace = zenoh.workspace(None).await?;
-                    workspace.put(&key, msg).await?;
+    for round in 1.. {
+        let send_until = add_jitter(init_time + send_timeout * round);
 
-                    round += 1;
-                    send_until = add_jitter(init_time + send_timeout * round);
+        tokio::select! {
+            _ = tokio::time::sleep_until(send_until.into()) => {
+                let msg = zenoh::Value::serialize_from(&data)?;
+                let workspace = zenoh.workspace(None).await?;
+                workspace.put(&key, msg).await?;
 
-                }
-                _ = tokio::time::sleep_until(until.into()) => {
-                    break;
-                }
+            }
+            _ = tokio::time::sleep_until(until.into()) => {
+                break;
             }
         }
-
-        Fallible::Ok(())
-    })
-    .await??;
+    }
 
     Ok(())
 }
@@ -584,7 +681,7 @@ where
 #[derivative(Debug)]
 struct Context<T> {
     finished: bool,
-    echo_count_tx: watch::Sender<usize>,
+    worker_tx: mpsc::Sender<EchoNotify>,
     _phantom: PhantomData<T>,
 }
 
@@ -597,6 +694,13 @@ pub struct Msg<T> {
 
 mod message {
     use super::*;
+
+    #[derive(Debug, Clone)]
+    pub struct EchoNotify {
+        pub peer: String,
+        pub round: usize,
+        pub timestamp: uhlc::Timestamp,
+    }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub enum Message<T> {
@@ -732,7 +836,6 @@ mod tests {
                             continue;
                         }
                     }
-                    // let msg = rx.recv().await?.unwrap();
                     if msg.data != None {
                         eprintln!(
                             "{} received sender={}, seq={}, data={}",

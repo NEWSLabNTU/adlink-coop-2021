@@ -1,0 +1,5 @@
+{
+    "num_peers": 10,
+    "num_msgs": 1,
+    "zenoh_dir": "reliable_broadcast",
+}
