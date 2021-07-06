@@ -7,8 +7,8 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use message::*;
 
-const REPEATING_SEND_PERIOD: Duration = Duration::from_millis(50);
-const JITTER_MICROS: u64 = 6000;
+const REPEATING_SEND_PERIOD: Duration = Duration::from_millis(15);
+const JITTER_MICROS: u64 = 5000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Config {
