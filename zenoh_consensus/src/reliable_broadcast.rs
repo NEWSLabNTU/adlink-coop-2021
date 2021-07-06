@@ -7,11 +7,13 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use message::*;
 
-const REPEATING_SEND_PERIOD: Duration = Duration::from_millis(40);
+const REPEATING_SEND_PERIOD: Duration = Duration::from_millis(50);
+const JITTER_MICROS: u64 = 6000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Config {
     pub max_rounds: usize,
+    pub extra_rounds: usize,
     pub recv_timeout: Duration,
     pub round_timeout: Duration,
 }
@@ -20,6 +22,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             max_rounds: 3,
+            extra_rounds: 2,
             recv_timeout: Duration::from_millis(50),
             round_timeout: Duration::from_millis(110),
         }
@@ -61,6 +64,7 @@ where
         id.to_string(),
         zenoh.clone(),
         config.max_rounds,
+        config.extra_rounds,
         config.recv_timeout,
         config.round_timeout,
         send_key.clone(),
@@ -173,6 +177,7 @@ async fn recv_worker<T>(
     id: String,
     zenoh: Arc<Zenoh>,
     max_rounds: usize,
+    extra_rounds: usize,
     recv_timeout: Duration,
     round_timeout: Duration,
     send_key: zenoh::Path,
@@ -243,6 +248,7 @@ where
                                     seq,
                                     peer_name.to_string(),
                                     max_rounds,
+                                    extra_rounds,
                                     recv_timeout,
                                     round_timeout,
                                     peers.clone(),
@@ -352,6 +358,7 @@ async fn coordinate_worker<T>(
     seq: usize,
     sender: String,
     max_rounds: usize,
+    extra_rounds: usize,
     recv_timeout: Duration,
     round_timeout: Duration,
     peers: Arc<DashSet<String>>,
@@ -373,32 +380,13 @@ where
         tokio::time::sleep_until(until.into()).await;
     }
 
-    let mut sending_futures = HashMap::new();
+    // let mut sending_futures = HashMap::new();
     let mut pending_echos: Vec<EchoNotify> = vec![];
     let mut accepted = false;
     let mut last_round = 0;
-
-    // in round 0 (round 2 in paper), send echo unconditionally
-    {
-        let msg: Message<T> = Echo {
-            seq,
-            sender: sender.clone(),
-            timestamp: hlc.new_timestamp(),
-            round: 0,
-        }
-        .into();
-        let until = init_time + round_timeout * 2;
-        let future = tokio::spawn(repeating_send(
-            zenoh.clone(),
-            send_key.clone(),
-            REPEATING_SEND_PERIOD,
-            None,
-            until,
-            msg,
-        ))
-        .map(|result| Fallible::Ok(result??));
-        sending_futures.insert(0, future.boxed());
-    };
+    let mut send_echo_flag = true;
+    let mut repeating_echo_future = None;
+    let mut echo_peer_set = HashSet::new();
 
     'round_loop: for round in 1..max_rounds {
         last_round = round;
@@ -412,12 +400,35 @@ where
             id, round, sender, seq
         );
 
-        // join repeating sending worker in last 2 round
-        if round >= 2 {
-            sending_futures.remove(&(round - 2)).unwrap().await?;
+        // join echo future
+        if let Some(future) = repeating_echo_future {
+            future.await?;
+            repeating_echo_future = None;
         }
 
-        let mut echo_peer_set = HashSet::new();
+        // send echo
+        if send_echo_flag {
+            let msg: Message<T> = Echo {
+                seq,
+                sender: sender.clone(),
+                timestamp: hlc.new_timestamp(),
+                round: round - 1,
+            }
+            .into();
+            let until = init_time + round_timeout * (round + 1) as u32;
+            let future = tokio::spawn(repeating_send(
+                zenoh.clone(),
+                send_key.clone(),
+                REPEATING_SEND_PERIOD,
+                None, // start
+                until,
+                msg,
+            ))
+            .map(|result| Fallible::Ok(result??));
+            // sending_futures.insert(round, future.boxed());
+            repeating_echo_future = Some(future);
+        }
+        send_echo_flag = false;
 
         // process pending echos
         pending_echos.drain(..).for_each(|echo| {
@@ -447,7 +458,7 @@ where
                         id, sender, seq, echo_count, num_peers
                     );
 
-                    if echo_count * 3 >= num_peers {
+                    if num_peers >= 4 && echo_count * 3 >= num_peers {
                         break 'first_phase;
                     }
                 }
@@ -464,28 +475,8 @@ where
             }
         }
 
-        // send echo
-        {
-            let msg: Message<T> = Echo {
-                seq,
-                sender: sender.clone(),
-                timestamp: hlc.new_timestamp(),
-                round,
-            }
-            .into();
-            let start = init_time + round_timeout * (round + 1) as u32;
-            let until = init_time + round_timeout * (round + 2) as u32;
-            let future = tokio::spawn(repeating_send(
-                zenoh.clone(),
-                send_key.clone(),
-                REPEATING_SEND_PERIOD,
-                Some(start),
-                until,
-                msg,
-            ))
-            .map(|result| Fallible::Ok(result??));
-            sending_futures.insert(round, future.boxed());
-        };
+        // mark to send echo in the next round
+        send_echo_flag = true;
 
         // in 2nd phase, collect echos until echo_ount >= 2/3 nv
         let until = round_start_time + recv_timeout * 2;
@@ -508,7 +499,7 @@ where
                         id, sender, seq, echo_count, num_peers
                     );
 
-                    if echo_count * 3 >= num_peers * 2 {
+                    if num_peers >= 4 && echo_count * 3 >= num_peers * 2 {
                         accepted = true;
                         break 'round_loop;
                     }
@@ -527,37 +518,35 @@ where
         }
     }
 
+    // join repeating echo future
+    if let Some(future) = repeating_echo_future {
+        future.await?;
+    }
+
     // if accepting early, unconditionally send echo in each round
     if accepted {
-        for round in (last_round + 1)..max_rounds {
+        for round in (last_round + 1)..min(last_round + extra_rounds + 1, max_rounds) {
             // wait until the round starting time
             let round_start_time = init_time + round_timeout * round as u32;
             tokio::time::sleep_until(round_start_time.into()).await;
-
-            // join sending worker in last 2 round
-            if round >= 2 {
-                sending_futures.remove(&(round - 2)).unwrap().await?;
-            }
 
             let msg: Message<T> = Echo {
                 seq,
                 sender: sender.clone(),
                 timestamp: hlc.new_timestamp(),
-                round,
+                round: round - 1,
             }
             .into();
-            let start = init_time + round_timeout * (round + 1) as u32;
-            let until = init_time + round_timeout * (round + 2) as u32;
-            let future = tokio::spawn(repeating_send(
+            let until = init_time + round_timeout * (round + 1) as u32;
+            tokio::spawn(repeating_send(
                 zenoh.clone(),
                 send_key.clone(),
                 REPEATING_SEND_PERIOD,
-                Some(start),
+                None,
                 until,
                 msg,
             ))
-            .map(|result| Fallible::Ok(result??));
-            sending_futures.insert(round, future.boxed());
+            .await??;
         }
     }
 
@@ -631,15 +620,9 @@ where
     T: 'static + Send + Serialize,
 {
     fn add_jitter(time: Instant) -> Instant {
-        const JITTER_MICROS: isize = 3000;
         let mut rng = rand::thread_rng();
-        let jitter = rng.gen_range(-JITTER_MICROS..=JITTER_MICROS);
-
-        if jitter >= 0 {
-            time + Duration::from_micros(jitter as u64)
-        } else {
-            time - Duration::from_micros(-jitter as u64)
-        }
+        let jitter = rng.gen_range(0..=JITTER_MICROS);
+        time + Duration::from_micros(jitter)
     }
 
     if let Some(start) = start {
@@ -783,6 +766,7 @@ mod tests {
             recv_timeout_ms: usize,
             round_timeout_ms: usize,
             max_rounds: usize,
+            extra_rounds: usize,
         }
 
         let TestConfig {
@@ -792,6 +776,7 @@ mod tests {
             recv_timeout_ms,
             round_timeout_ms,
             max_rounds,
+            extra_rounds,
         } = {
             let text = fs::read_to_string(
                 Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -815,9 +800,10 @@ mod tests {
                 path,
                 &name,
                 super::Config {
+                    max_rounds,
+                    extra_rounds,
                     recv_timeout: Duration::from_millis(recv_timeout_ms as u64),
                     round_timeout: Duration::from_millis(round_timeout_ms as u64),
-                    max_rounds,
                 },
             )?;
 
