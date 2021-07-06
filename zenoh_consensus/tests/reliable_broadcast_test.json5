@@ -1,5 +1,5 @@
 {
-    "num_peers": 10,
+    "num_peers": 120,
     "num_msgs": 1,
     "zenoh_dir": "reliable_broadcast",
     "recv_timeout_ms": 55,

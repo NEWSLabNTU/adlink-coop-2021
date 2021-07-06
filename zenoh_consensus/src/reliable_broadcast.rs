@@ -786,6 +786,8 @@ mod tests {
             json5::from_str(&text)?
         };
         let zenoh_dir = &zenoh_dir;
+        let until =
+            Instant::now() + Duration::from_millis((round_timeout_ms * max_rounds + 10) as u64);
 
         let futures = (0..num_peers).map(|peer_index| async move {
             let mut config = zenoh::ConfigProperties::default();
@@ -825,7 +827,6 @@ mod tests {
             };
             let consumer = async move {
                 let mut cnt = 0;
-                let until = Instant::now() + Duration::from_secs(10);
                 for _ in 0..(num_peers * num_msgs) {
                     let msg;
                     let result = utils::timeout_until(until, rx.recv()).await;
