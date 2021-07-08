@@ -1,9 +1,9 @@
 {
-    "num_peers": 120,
+    "num_peers": 15,
     "num_msgs": 1,
     "zenoh_dir": "reliable_broadcast",
-    "recv_timeout_ms": 35,
-    "round_timeout_ms": 75,
+    "recv_timeout_ms": 300,
+    "round_timeout_ms": 615,
     "max_rounds": 3,
     "extra_rounds": 2,
 }

@@ -57,8 +57,8 @@ where
 
     let hlc = Arc::new(HLC::default());
 
-    let (job_tx, job_rx) = mpsc::channel(2);
-    let (output_tx, output_rx) = mpsc::channel(2);
+    let (job_tx, job_rx) = mpsc::channel(10);
+    let (output_tx, output_rx) = mpsc::channel(10);
 
     let recv_worker = tokio::spawn(recv_worker::<T>(
         id.to_string(),
@@ -191,7 +191,12 @@ async fn recv_worker<T>(
 where
     T: 'static + Send + Sync + Serialize + DeserializeOwned,
 {
-    debug!("{} sends present", id);
+    // let mut cnt = 0;
+    let workspace = zenoh.workspace(None).await?;
+    let mut change_stream = workspace.subscribe(&recv_selector).await?;
+
+    debug!("{} is listening", id);
+    
     zenoh_tx
         .send(
             Present {
@@ -200,17 +205,15 @@ where
             .into(),
         )
         .await?;
-
-    let workspace = zenoh.workspace(None).await?;
-    let mut change_stream = workspace.subscribe(&recv_selector).await?;
-
-    debug!("{} is listening", id);
+    debug!("{} sends present", id);
+    
+    // eprintln!("recv_worker = {:?}", Instant::now());
 
     let mut pending_echos = HashMap::new();
 
     'stream_loop: while let Some(change) = change_stream.next().await {
         let peer_name = change.path.last_segment();
-
+        
         match change.kind {
             zenoh::ChangeKind::Put => {
                 peers.insert(peer_name.to_string());
@@ -240,8 +243,7 @@ where
                                 // ignore duplicated broadcast
                             }
                             dashmap::mapref::entry::Entry::Vacant(entry) => {
-                                let (worker_tx, worker_rx) = mpsc::channel(8);
-
+                                let (worker_tx, worker_rx) = mpsc::channel(100000);
                                 // save future to some place and await it
                                 let future = tokio::spawn(coordinate_worker(
                                     id.clone(),
@@ -291,13 +293,11 @@ where
                         seq,
                         sender,
                         timestamp,
-                        round,
                     }) => {
                         debug!(
                             "{} -> {}: echo, seq={}, sender={}",
                             peer_name, id, seq, sender,
                         );
-
                         let key = (sender.clone(), seq);
                         let mut context = match contexts.get_mut(&key) {
                             Some(context) => context,
@@ -320,7 +320,6 @@ where
                                 }
                                 .push(EchoNotify {
                                     peer: peer_name.to_owned(),
-                                    round,
                                     timestamp,
                                 });
 
@@ -331,11 +330,9 @@ where
                         if !context.finished {
                             let msg = EchoNotify {
                                 peer: peer_name.to_owned(),
-                                round,
                                 timestamp,
                             };
                             let result = context.worker_tx.send(msg).await;
-
                             if result.is_err() {
                                 context.finished = true;
                             }
@@ -379,6 +376,16 @@ where
         let until = init_time + round_timeout;
         tokio::time::sleep_until(until.into()).await;
     }
+    //sends an echo
+    let msg: Message<T> = Echo {
+        seq,
+        sender: sender.clone(),
+        timestamp: hlc.new_timestamp(),
+    }
+    .into();
+    let msg_echo = zenoh::Value::serialize_from(&msg)?;
+    let workspace = zenoh.workspace(None).await?;
+    workspace.put(&send_key, msg_echo).await?;
 
     // let mut sending_futures = HashMap::new();
     let mut pending_echos: Vec<EchoNotify> = vec![];
@@ -412,7 +419,6 @@ where
                 seq,
                 sender: sender.clone(),
                 timestamp: hlc.new_timestamp(),
-                round: round - 1,
             }
             .into();
             let until = init_time + round_timeout * (round + 1) as u32;
@@ -432,7 +438,6 @@ where
 
         // process pending echos
         pending_echos.drain(..).for_each(|echo| {
-            assert!(echo.round == round - 1);
             echo_peer_set.insert(echo.peer);
         });
 
@@ -442,13 +447,6 @@ where
             let result = utils::timeout_until(until, worker_rx.recv()).await;
             match result {
                 Ok(Some(echo)) => {
-                    if round - 1 != echo.round {
-                        if round == echo.round {
-                            pending_echos.push(echo);
-                        }
-                        continue 'first_phase;
-                    }
-
                     echo_peer_set.insert(echo.peer);
 
                     let echo_count = echo_peer_set.len();
@@ -484,12 +482,6 @@ where
             let result = utils::timeout_until(until, worker_rx.recv()).await;
             match result {
                 Ok(Some(echo)) => {
-                    if round - 1 != echo.round {
-                        if round == echo.round {
-                            pending_echos.push(echo);
-                        }
-                        continue 'second_phase;
-                    }
                     echo_peer_set.insert(echo.peer);
 
                     let echo_count = echo_peer_set.len();
@@ -501,6 +493,10 @@ where
 
                     if num_peers >= 4 && echo_count * 3 >= num_peers * 2 {
                         accepted = true;
+                        debug!(
+                            "{} accepted msg in round {}: sender={}, seq={}",
+                            id, round, sender, seq
+                        );
                         break 'round_loop;
                     }
                 }
@@ -519,9 +515,9 @@ where
     }
 
     // join repeating echo future
-    if let Some(future) = repeating_echo_future {
-        future.await?;
-    }
+    // if let Some(future) = repeating_echo_future {
+    //     future.await?;
+    // }
 
     // if accepting early, unconditionally send echo in each round
     if accepted {
@@ -534,7 +530,6 @@ where
                 seq,
                 sender: sender.clone(),
                 timestamp: hlc.new_timestamp(),
-                round: round - 1,
             }
             .into();
             let until = init_time + round_timeout * (round + 1) as u32;
@@ -681,7 +676,6 @@ mod message {
     #[derive(Debug, Clone)]
     pub struct EchoNotify {
         pub peer: String,
-        pub round: usize,
         pub timestamp: uhlc::Timestamp,
     }
 
@@ -735,7 +729,6 @@ mod message {
     pub struct Echo {
         pub seq: usize,
         pub sender: String,
-        pub round: usize,
         #[serde(with = "utils::serde_uhlc_timestamp")]
         #[derivative(Hash(hash_with = "utils::hash_uhlc_timestamp"))]
         pub timestamp: uhlc::Timestamp,
@@ -786,8 +779,12 @@ mod tests {
             json5::from_str(&text)?
         };
         let zenoh_dir = &zenoh_dir;
+        eprintln!("{:?}", Instant::now());
         let until =
-            Instant::now() + Duration::from_millis((round_timeout_ms * max_rounds + 10) as u64);
+            Instant::now() + Duration::from_millis((round_timeout_ms * (max_rounds+extra_rounds+10) + 120*num_peers + 100*num_msgs + 800) as u64);
+        
+        let start_until = 
+            Instant::now() + Duration::from_millis((800 + 120*num_peers) as u64); // wait till all peers are ready
 
         let futures = (0..num_peers).map(|peer_index| async move {
             let mut config = zenoh::ConfigProperties::default();
@@ -813,9 +810,12 @@ mod tests {
                 let name = name.clone();
                 async move {
                     let mut rng = rand::thread_rng();
+                    async_std::task::sleep(start_until - Instant::now()).await;
 
                     for seq in 0..num_msgs {
-                        async_std::task::sleep(Duration::from_millis(100)).await;
+                        let mut rand_jitter: u8 = rng.gen();
+                        rand_jitter = rand_jitter % 50;
+                        async_std::task::sleep(Duration::from_millis(100+rand_jitter as u64)).await;
 
                         let data: u8 = rng.gen();
                         eprintln!("{} sends seq={}, data={}", name, seq, data);
@@ -840,7 +840,7 @@ mod tests {
                     }
                     if msg.data != None {
                         eprintln!(
-                            "{} received sender={}, seq={}, data={}",
+                            "{} accepted sender={}, seq={}, data={}",
                             name,
                             msg.sender,
                             msg.seq,
@@ -858,10 +858,10 @@ mod tests {
                 Fallible::Ok(())
             };
 
+            eprintln!("fut = {:?}", Instant::now());
             futures::try_join!(producer, consumer)?;
             Fallible::Ok(())
         });
-
         futures::future::try_join_all(futures).await?;
 
         Ok(())
