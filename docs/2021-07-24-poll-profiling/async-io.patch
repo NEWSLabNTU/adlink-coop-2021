@@ -1,0 +1,17 @@
+diff --git a/src/driver.rs b/src/driver.rs
+index dd52621..859c10c 100644
+--- a/src/driver.rs
++++ b/src/driver.rs
+@@ -139,7 +139,11 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
+ 
+     loop {
+         // Poll the future.
+-        if let Poll::Ready(t) = future.as_mut().poll(cx) {
++        let instant = Instant::now();
++        let poll = future.as_mut().poll(cx);
++        log::debug!("{}", instant.elapsed().as_nanos());
++
++        if let Poll::Ready(t) = poll {
+             log::trace!("block_on: completed");
+             return t;
+         }
