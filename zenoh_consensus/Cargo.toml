@@ -7,7 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-zenoh = "0.5.0-beta.8"
+zenoh = "0.5.0-dev"
 async-std = "1.9.0"
 futures = "0.3.15"
 uhlc = "0.3.0"
@@ -24,8 +24,12 @@ rand = "0.8.4"
 pretty_env_logger = "0.4.0"
 
 [patch.crates-io]
+zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "bd2255dc91359774ea89e29631a743a384fa6899" }
 # zenoh = { git = "https://github.com/NEWSLabNTU/zenoh.git", branch = "newslab-patches" }
-zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "471f485acf883f27da06318b57b65291050aecfa" }
+# zenoh = { path = "/home/jerry73204/lab/zenoh/zenoh" }
+# async-std = { path = "/home/jerry73204/data/repos/async-std" }
+# async-global-executor = { path = "/home/jerry73204/data/repos/async-global-executor" }
+# async-executor = { path = "/home/jerry73204/data/repos/async-executor" }
 
 [dev-dependencies]
 json5 = "0.3.0"
