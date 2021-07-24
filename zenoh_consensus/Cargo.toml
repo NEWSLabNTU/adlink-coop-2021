@@ -30,6 +30,7 @@ zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "bd2255dc913
 # async-std = { path = "/home/jerry73204/data/repos/async-std" }
 # async-global-executor = { path = "/home/jerry73204/data/repos/async-global-executor" }
 # async-executor = { path = "/home/jerry73204/data/repos/async-executor" }
+nix = { git = "https://github.com/nix-rust/nix.git", tag = "v0.20.0" }
 
 [dev-dependencies]
 json5 = "0.3.0"
