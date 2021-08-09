@@ -22,6 +22,7 @@ owning_ref = "0.4.1"
 tokio-stream = "0.1.6"
 rand = "0.8.4"
 pretty_env_logger = "0.4.0"
+json5 = "0.3.0"
 
 [patch.crates-io]
 # zenoh = { git = "https://github.com/NEWSLabNTU/zenoh.git", branch = "newslab-patches" }
@@ -29,3 +30,6 @@ zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "471f485acf8
 
 [dev-dependencies]
 json5 = "0.3.0"
+
+[profile.release]
+debug = 1

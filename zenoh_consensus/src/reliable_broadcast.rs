@@ -670,7 +670,7 @@ pub struct Msg<T> {
     pub data: Option<T>,
 }
 
-mod message {
+pub mod message {
     use super::*;
 
     #[derive(Debug, Clone)]
