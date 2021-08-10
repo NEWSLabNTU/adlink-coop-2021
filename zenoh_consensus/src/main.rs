@@ -14,22 +14,30 @@ async fn main(){
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct TestConfig {
         num_peers: usize,
+        local_peer_id_start: usize,
+        local_peer_id_end: usize,
         num_msgs: usize,
         zenoh_dir: String,
         recv_timeout_ms: usize,
         round_timeout_ms: usize,
         max_rounds: usize,
         extra_rounds: usize,
+        remote_peer_locator: String,
+        initial_delay: usize,
     }
 
     let TestConfig {
         num_peers,
+        local_peer_id_start,
+        local_peer_id_end,
         num_msgs,
         zenoh_dir,
         recv_timeout_ms,
         round_timeout_ms,
         max_rounds,
         extra_rounds,
+        remote_peer_locator,
+        initial_delay,
     } = {
         let text = fs::read_to_string(
             Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -39,16 +47,18 @@ async fn main(){
         json5::from_str(&text).unwrap()
     };
     let zenoh_dir = &zenoh_dir;
+    let remote_peer_locator = & remote_peer_locator;
     eprintln!("{:?}", Instant::now());
     let until =
-        Instant::now() + Duration::from_millis((round_timeout_ms * (max_rounds+extra_rounds+10) + 120*num_peers + 100*num_msgs + 800) as u64);
+        Instant::now() + Duration::from_millis((round_timeout_ms * (max_rounds+extra_rounds+10) + 120*num_peers + 100*num_msgs + initial_delay) as u64);
     
     let start_until = 
         Instant::now() + Duration::from_millis((800 + 120*num_peers) as u64); // wait till all peers are ready
 
-    let futures = (0..num_peers).map(|peer_index| async move {
+    let futures = (local_peer_id_start..local_peer_id_end).map(|peer_index| async move {
         let mut config = zenoh::ConfigProperties::default();
         config.insert(zenoh::net::config::ZN_ADD_TIMESTAMP_KEY, "true".to_string());
+        config.insert(zenoh::net::config::ZN_PEER_KEY, remote_peer_locator.to_string());
         let zenoh = Arc::new(Zenoh::new(config).await?);
 
         let name = format!("peer_{}", peer_index);

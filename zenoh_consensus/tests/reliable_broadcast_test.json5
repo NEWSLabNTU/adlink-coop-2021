@@ -1,9 +1,13 @@
 {
     "num_peers": 10,
+    "local_peer_id_start": 0,
+    "local_peer_id_end": 5,
     "num_msgs": 1,
     "zenoh_dir": "reliable_broadcast",
-    "recv_timeout_ms": 250,
-    "round_timeout_ms": 515,
+    "recv_timeout_ms": 500,
+    "round_timeout_ms": 1015,
     "max_rounds": 3,
     "extra_rounds": 2,
+    "remote_peer_locator": "tcp/140.112.31.243:7447",
+    "initial_delay": 1000,
 }
