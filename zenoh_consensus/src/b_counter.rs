@@ -247,14 +247,14 @@ mod tests {
                 .await;
                 b_counter.increase(id * 10 + 1).await;
                 eprintln!("peer {} increased {}", id, id * 10 + 1);
-                b_counter.publish().await;
+                b_counter.publish().await.expect("could not publish");
                 async_std::task::sleep(Duration::from_millis(1000)).await;
                 let mut cnt_value = b_counter.get().await;
                 eprintln!("peer {} has value of {}", id, cnt_value);
 
                 b_counter.decrease((id + 1) * 2).await;
                 eprintln!("peer {} decreased {}", id, (id + 1) * 2);
-                b_counter.publish().await;
+                b_counter.publish().await.expect("could not publish");;
                 async_std::task::sleep(Duration::from_millis(1000)).await;
 
                 cnt_value = b_counter.get().await;
