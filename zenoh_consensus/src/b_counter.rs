@@ -254,7 +254,7 @@ mod tests {
 
                 b_counter.decrease((id + 1) * 2).await;
                 eprintln!("peer {} decreased {}", id, (id + 1) * 2);
-                b_counter.publish().await.expect("could not publish");;
+                b_counter.publish().await.expect("could not publish");
                 async_std::task::sleep(Duration::from_millis(1000)).await;
 
                 cnt_value = b_counter.get().await;

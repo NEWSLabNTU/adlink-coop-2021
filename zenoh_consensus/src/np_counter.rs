@@ -166,14 +166,14 @@ mod tests {
                 .await;
                 np_counter.increase(id * 10 + 1).await;
                 eprintln!("peer {} increased {}", id, id * 10 + 1);
-                np_counter.publish().await;
+                np_counter.publish().await.expect("could not publish");
                 async_std::task::sleep(Duration::from_millis(1000)).await;
                 let mut cnt_value = np_counter.get().await;
                 eprintln!("peer {} has value of {}", id, cnt_value);
 
                 np_counter.decrease((id + 1) * 2).await;
                 eprintln!("peer {} decreased {}", id, (id + 1) * 2);
-                np_counter.publish().await;
+                np_counter.publish().await.expect("could not publish");
                 async_std::task::sleep(Duration::from_millis(1000)).await;
 
                 cnt_value = np_counter.get().await;
