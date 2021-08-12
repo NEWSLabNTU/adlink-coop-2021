@@ -1,12 +1,9 @@
-use zenoh_consensus::{common::*, reliable_broadcast, utils::{self, ValueExt}, zenoh_sender::ZenohSender};
-use tokio_stream::wrappers::ReceiverStream;
+use zenoh_consensus::{common::*, reliable_broadcast, utils};
 
-use zenoh_consensus::reliable_broadcast::message::*;
+
 
 use json5;
 
-const REPEATING_SEND_PERIOD: Duration = Duration::from_millis(15);
-const JITTER_MICROS: u64 = 5000;
 #[async_std::main]
 async fn main(){
     pretty_env_logger::init();

@@ -478,7 +478,7 @@ where
 
         // in 2nd phase, collect echos until echo_ount >= 2/3 nv
         let until = round_start_time + recv_timeout * 2;
-        'second_phase: loop {
+        loop {
             let result = utils::timeout_until(until, worker_rx.recv()).await;
             match result {
                 Ok(Some(echo)) => {

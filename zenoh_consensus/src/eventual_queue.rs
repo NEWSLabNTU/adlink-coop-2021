@@ -1,21 +1,16 @@
 use crate::common::*;
 use async_std::sync::Mutex;
 
-fn make_msg_id(peer: usize, item: usize) -> i64 {
-    i64::from_le_bytes((((peer as u64) << 32) | item as u64).to_le_bytes())
-}
 
 pub struct EventualQueue {
     id: usize,
     zenoh: Arc<Zenoh>,
     request_key: Arc<zenoh::Path>,
     enqueue_key: Arc<zenoh::Path>,
-    ack_base_dir: Arc<zenoh::Path>,
     state: Arc<Mutex<State>>,
     queue: Arc<Mutex<Vec<usize>>>,
     lock_rx: watch::Receiver<()>,
     deque_return: Arc<Mutex<Option<usize>>>,
-    not_popped: Arc<Mutex<Vec<usize>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -584,11 +579,9 @@ impl EventualQueue {
             id,
             zenoh,
             request_key,
-            ack_base_dir,
             state,
             queue,
             lock_rx,
-            not_popped,
             deque_return,
             enqueue_key,
         })
