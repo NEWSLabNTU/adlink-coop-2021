@@ -37,5 +37,6 @@ pub use std::{
 pub use tokio::sync::{mpsc, oneshot, watch, Notify};
 pub use uhlc::*;
 pub use zenoh::{Selector, Value, Workspace, Zenoh};
+pub use maplit::hashmap;
 
 pub type Fallible<T> = Result<T>;
