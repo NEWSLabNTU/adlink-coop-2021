@@ -5,26 +5,26 @@ use sha2::Sha256;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VehicleType {
-    vehicle_type: String,
+    pub vehicle_type: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Node {
-    speed_limit: f64,
-    allowed_vehicles: Vec<VehicleType>,
-    soft_timeout: Duration,
-    hard_timeout: Duration,
-    capacity: u64,
+    pub speed_limit: f64,
+    pub allowed_vehicles: Vec<VehicleType>,
+    pub soft_timeout: Duration,
+    pub hard_timeout: Duration,
+    pub capacity: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpatialRange {
-    range: f64,
+    pub range: f64,
 }
 
 pub struct ParticipantSpec {
-    deadline: HLC,
-    spatial_range: SpatialRange,
+    pub deadline: HLC,
+    pub spatial_range: SpatialRange,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -35,27 +35,75 @@ pub enum Priority {
 
 #[derive(Debug, Clone)]
 pub struct Route {
-    node: Node,
-    edges: HashSet<(Node, Node, Priority)>,
+    pub node: Node,
+    pub edges: HashSet<(Node, Node, Priority)>,
+}
+
+pub enum Block {
+    Init(InitBlock),
+    Phantom(PhantomBlock),
+    Route(RouteBlock),
+    Decision(DecisionBlock),
+}
+
+impl Block {
+    pub fn curr_hash(&self) -> &Sha256 {
+        match self {
+            Self::Init(block) => &block.nonce,
+            Self::Phantom(block) => &block.curr_hash,
+            Self::Route(block) => &block.curr_hash,
+            Self::Decision(block) => &block.curr_hash,
+        }
+    }
+
+    pub fn validate(&self) -> bool {
+        match self {
+            Self::Init(block) => true,
+            Self::Phantom(block) => true,
+            Self::Route(block) => block.validate(),
+            Self::Decision(block) => block.validate(),
+        }
+    }
 }
 
 pub struct InitBlock {
-    nonce: Sha256,
-    timestamp: HLC,
-    signature: Signature,
+    pub nonce: Sha256,
+    pub timestamp: HLC,
+    pub signature: Signature,
 }
 
 pub struct PhantomBlock {
-    curr_hash: Sha256,
-    timestamp: HLC,
-    signature: Signature,
+    pub curr_hash: Sha256,
+    pub timestamp: HLC,
+    pub signature: Signature,
 }
 
 pub struct RouteBlock {
-    curr_hash: Sha256,
-    prev_hash: Sha256,
-    timestamp: HLC,
-    routes: Route,
+    pub curr_hash: Sha256,
+    pub prev_hash: Sha256,
+    pub timestamp: HLC,
+    pub routes: Route,
+}
+
+impl RouteBlock {
+    pub fn validate(&self) -> bool {
+        todo!();
+    }
+}
+
+pub struct DecisionBlock {
+    pub signature: Signature,
+    pub curr_hash: Sha256,
+    pub prev_hash: Sha256,
+    pub timestamp: HLC,
+    pub decision: Decision,
+    pub participant_spec: ParticipantSpec,
+}
+
+impl DecisionBlock {
+    pub fn validate(&self) -> bool {
+        todo!();
+    }
 }
 
 /// Choices of intentions vehicles have
@@ -68,60 +116,46 @@ pub enum Choice {
 
 /// decision_map: node -> (choice, start_time, end_time)
 pub struct Decision {
-    decision_map: HashMap<Node, (Choice, HLC, HLC)>,
+    pub decision_map: HashMap<Node, (Choice, HLC, HLC)>,
 }
 
 pub struct PreDecision {
-    proposals: Vec<Proposal>,
+    pub proposals: Vec<Proposal>,
 }
 
 pub struct Proposal {
-    sender: String,
-    node: Choice,
-    start_time: HLC,
-    end_time: HLC,
-    latest_decision_block: Sha256,
-    latest_route_block: Sha256,
+    pub sender: String,
+    pub node: Choice,
+    pub start_time: HLC,
+    pub end_time: HLC,
+    pub latest_decision_block: Sha256,
+    pub latest_route_block: Sha256,
 }
 
-pub struct DecisionBlock {
-    signature: Signature,
-    curr_hash: Sha256,
-    prev_hash: Sha256,
-    timestamp: HLC,
-    decision: Decision,
-    participant_spec: ParticipantSpec,
-}
-pub struct RouteChain {
-    logs: Vec<RouteBlock>,
-    set: HashSet<RouteBlock>,
+pub struct BlockChain {
+    pub logs: Vec<Sha256>,
+    pub set: HashMap<Sha256, Block>,
 }
 
-impl RouteChain {
-    pub fn init() -> RouteChain {
-        todo!("Add implementation");
+impl BlockChain {
+    pub fn new() -> Self {
+        let nonce: Sha256 = todo!();
+
+        let init_block = InitBlock {
+            nonce,
+            timestamp: todo!(),
+            signature: todo!(),
+        };
+
+        Self {
+            logs: vec![nonce],
+            set: hashset! {
+                nonce => init_block
+            },
+        }
     }
 
-    pub fn append_block() -> Result<()> {
-        todo!("Add implementation");
-    }
-
-    pub fn condense_log() -> Result<()> {
-        todo!("Add implementation");
-    }
-}
-
-pub struct DecisionChain {
-    logs: Vec<DecisionBlock>,
-    set: HashSet<DecisionBlock>,
-}
-
-impl DecisionChain {
-    pub fn init() -> DecisionChain {
-        todo!("Add implementation");
-    }
-
-    pub fn append_block() -> Result<()> {
+    pub fn append_block(block: Block) -> Result<()> {
         todo!("Add implementation");
     }
 
@@ -134,15 +168,16 @@ pub struct RSU {
     route_chain: RouteChain,
     decision_chain: DecisionChain,
     key: zenoh::Path,
+    cert: Certificate,
 }
 
 impl RSU {
-    pub fn init() -> RSU {
+    pub fn new(_cert: Certificate) -> RSU {
         todo!("Add implementation");
     }
 
-    pub fn cert() -> Certificate {
-        todo!("Add implementation");
+    pub fn cert() -> &Certificate {
+        &self.cert
     }
 
     pub fn query_log(duration: Duration) -> (Vec<DecisionBlock>, Vec<RouteBlock>) {

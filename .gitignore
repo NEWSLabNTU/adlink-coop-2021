@@ -4,3 +4,7 @@
 *.swp
 *.swo
 \#*#
+
+# rust
+Cargo.lock
+/target/
