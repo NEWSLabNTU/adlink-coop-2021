@@ -23,6 +23,8 @@ tokio-stream = "0.1.6"
 rand = "0.8.4"
 pretty_env_logger = "0.4.0"
 json5 = "0.3.0"
+sha2 = "0.9.8"
+edcert = "9.0.1"
 
 [patch.crates-io]
 zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "bd2255dc91359774ea89e29631a743a384fa6899" }

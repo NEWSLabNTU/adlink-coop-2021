@@ -5,5 +5,6 @@ pub mod lamport_mutex;
 pub mod np_counter;
 pub mod np_counter_hashmap;
 pub mod reliable_broadcast;
+pub mod rsu;
 pub mod utils;
 pub mod zenoh_sender;
