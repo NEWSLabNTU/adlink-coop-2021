@@ -2,10 +2,13 @@
 
 ## Reliable Broadcast
 
+### Introduction
+
+This is an implementation for the algorithm Reliable Broadcast mentioned in [Byzantine Agreement with Unknown Participants and Failures](https://arxiv.org/abs/2102.10442). It is used as a component of transmission.
+
 ### Prerequisite
 
-Please check out chapter I to V of the paper: [Byzantine Agreement with Unknown Participants
-and Failures](https://arxiv.org/abs/2102.10442) for the theory of Reliable Broadcast. The implementation is based on the algorithm provided in the paper.
+Please check out chapter I to V of the paper: [Byzantine Agreement with Unknown Participants and Failures](https://arxiv.org/abs/2102.10442) for the theory of Reliable Broadcast. The implementation is based on the algorithm provided in the paper.
 
 ### Sample Code
 
@@ -41,6 +44,29 @@ To receive a message, please `await` on `rx.recv()`, which will return a `Result
 * `sender` : The ID of the peer who sent the message.
 * `seq` : The sequence number that identifies the message.
 * `data` : The `u8` instance sent by Reliable Broadcast.
+
+### Config Setting
+
+The current(last updated: 2021/09/22) main function reads the config file located at `zenoh_library/zenoh_consensus/test/reliable_broadcast_test.json5`, and starts a reliable broadcast for several peers either located in the same machine or several machines. The config file defines the following parameters for the program:
+
+* <a id="num_peers">`num_peers`</a>: The total number of peers joining the broadcast.
+* `local_peer_id_start` : The starting peer ID running on localhost. If you are running single machine, it should always be set to `0`.
+* `local_peer_id_end` : The ending peer ID running on localhost. If you are running single machine, it should be the same as [`num_peers`](#num_peers). 
+* `num-msgs` : The number of messages to send. Each message will be send with Reliable Broadcast.
+* `zenoh_dir` : The zenoh workspace for all peers to join.
+* <a id="recv_timeout_ms">`recv_timeout_ms`</a> : The timeout for receiving the first 1/3 Nv echoes. (see definition of Nv in the [paper](https://arxiv.org/abs/2102.10442)) The unit is in milliseconds.
+* <a id="round_timeout_ms">`round_timeout_ms` </a>: The timeout for the whole Reliable Broadcast. All peers should accept the message or reject the message before this timeout. The unit is in  milliseconds. 
+
+* `max_rounds` : The maximum number of rounds each Reliable Broadcast should terminate within.
+
+* `extra_rounds`: The number of rounds that the peers which accept the message will continue sending echoes.
+* `remote_peer_locator`: The address to lookup remote peers. If you are running on single machine, it should be `tcp/localhost:7447`. It is recommended to create a zenoh router at this address.
+* <a id="initial_delay">`initial_delay`</a> : The time for the machine to initialize zenoh related services. The unit is in milliseconds.
+
+### Common Issues
+
+* Q : When running the program, the peers lost `#` messages, where `#` is a number.
+* A: Please check if you are running in `release` mode. Please run the program in `release` mode. If the problem persists, please try to increase [`initial_delay`](#initial_delay), [`recv_timeout_ms`](#recv_timeout_ms), and [`round_timeout_ms`](#round_timeout_ms) in the config file.
 
 ### Notes
 
