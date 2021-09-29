@@ -76,3 +76,48 @@ The current(last updated: 2021/09/22) main function reads the config file locate
 ### Suggestion
 
 It is highly recommended to wrap the asynchronous operations of `tx` and `rx` into futures that can be polled. Please take some time going through the sample code for the above mentioned operation. 
+
+## CPU Usage & Memory Usage logging
+
+### Tool
+
+The tool used for CPU & Memory Usage logging is [`psrecord`](https://github.com/astrofrog/psrecord). 
+
+### Usage
+
+Please checkout their [github](https://github.com/astrofrog/psrecord) page for more details.
+
+### Common Issues Observed on Raspberry Pi installation
+
+1. `bash: psrecord: command not found`: 
+
+   * Reason: The program is located under `~/.local/bin`. If the `PATH` does not contain this directory, the command is not found
+
+   * Solution: add the directory to `PATH`.  Reference: [link](https://askubuntu.com/questions/900312/pip-install-saws-command-not-found)
+
+     ```bash
+     export PATH=$PATH:~/.local/bin
+     ```
+
+     You may also add this line to `~/.bashrc` if you don't want to type this command every time you open a terminal.
+
+2. `ImportError: numpy.core.multiarray failed to import`: 
+
+   * Solution: Install numpy with `-U` option. Reference: [link](https://stackoverflow.com/questions/20518632/importerror-numpy-core-multiarray-failed-to-import)
+
+     ```bash
+     pip install -U numpy 
+     ```
+
+     Note: If you are using python3, please use `pip3` instead of `pip`.
+
+3. `libf77blas.so.3: cannot open shared file: no such file or directory`:
+
+   * Solution: install the following package. Reference: [link](https://github.com/numpy/numpy/issues/14772)
+
+     ```bash
+     sudo apt-get install libatlas-base-dev
+     ```
+
+     
+
