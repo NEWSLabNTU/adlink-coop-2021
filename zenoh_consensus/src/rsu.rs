@@ -1,4 +1,6 @@
 #![allow(dead_code, unused_variables)]
+use std::ops::Deref;
+
 use crate::common::*;
 use edcert::{certificate::Certificate, signature::Signature};
 use textnonce::TextNonce;
@@ -60,6 +62,24 @@ impl Block {
         }
     }
 
+    pub fn get_signature(&self) -> &Signature {
+        match self {
+            Self::Init(block) => &block.signature,
+            Self::Phantom(block) => &block.signature,
+            Self::RoutingChart(block) => &block.signature,
+            Self::Decision(block) => &block.signature,
+        }
+    }
+
+    pub fn get_timestamp(&self) -> HLC {
+        match self {
+            Self::Init(block) => todo!("Solve HLC clone/copy issue"),
+            Self::Phantom(block) => todo!("Solve HLC clone/copy issue"),
+            Self::RoutingChart(block) => todo!("Solve HLC clone/copy issue"),
+            Self::Decision(block) => todo!("Solve HLC clone/copy issue"),
+        }
+    }
+
     pub fn validate(&self) -> bool {
         match self {
             Self::Init(block) => true,
@@ -87,6 +107,7 @@ pub struct RoutingChartBlock {
     pub prev_hash: Sha256Hash,
     pub timestamp: HLC,
     pub routing_chart: RoutingChart,
+    pub signature: Signature,
 }
 
 impl RoutingChartBlock {
@@ -162,12 +183,37 @@ impl BlockChain {
         }
     }
 
-    pub fn append_block(block: Block) -> Result<()> {
-        todo!("Add implementation");
+    pub fn append_block(mut self, block: Block) -> Result<()> {
+        let curr_block_hash = block.curr_hash();
+        self.logs.push(curr_block_hash.clone());
+        self.set.insert(curr_block_hash.clone(), block);
+        Ok(())
     }
 
-    pub fn condense_log() -> Result<()> {
-        todo!("Add implementation");
+    pub fn condense_log(mut self, num_blocks_to_remain: usize) -> Result<()> {
+        if self.logs.len() <= num_blocks_to_remain {
+            Ok(())
+        } else {
+            let id_block_to_condense = self.logs.len() - 1 - num_blocks_to_remain;
+            let hash_block_to_condense = self.logs[id_block_to_condense].clone();
+            let phantom_block = {
+                let block_to_condense = self.set.get(&hash_block_to_condense).unwrap();
+                Block::Phantom(PhantomBlock {
+                    curr_hash: hash_block_to_condense.clone(),
+                    timestamp: block_to_condense.get_timestamp(),
+                    signature: block_to_condense.get_signature().clone(),
+                })
+            };
+            //create new log that starts with phantom block
+            let new_log = self.logs.split_off(id_block_to_condense);
+            self.set.insert(hash_block_to_condense, phantom_block);
+            // remove blocks that are being condensed
+            for hash_value in self.logs.iter() {
+                self.set.remove(hash_value);
+            }
+            self.logs = new_log;
+            Ok(())
+        }
     }
 }
 
