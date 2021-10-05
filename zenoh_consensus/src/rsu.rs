@@ -1,8 +1,9 @@
 #![allow(dead_code, unused_variables)]
 use crate::common::*;
 use edcert::{certificate::Certificate, signature::Signature};
+use textnonce::TextNonce;
 // use maplit::hashset;
-// use sha2::{Digest, Sha256};
+use sha2::{Digest, Sha256};
 
 type Sha256Hash = Vec<u8>;
 
@@ -142,7 +143,10 @@ pub struct BlockChain {
 
 impl BlockChain {
     pub fn new() -> Self {
-        let nonce: Sha256Hash = vec![];
+        let text_nonce = TextNonce::new();
+        let mut hasher = Sha256::new();
+        hasher.update(text_nonce.into_string());
+        let nonce: Sha256Hash = hasher.finalize().to_vec();
 
         let init_block = Block::Init(InitBlock {
             nonce,
