@@ -171,8 +171,8 @@ impl BlockChain {
 
         let init_block = Block::Init(InitBlock {
             nonce,
-            timestamp: todo!(),
-            signature: todo!(),
+            timestamp: todo!("Fill timestamp"),
+            signature: todo!("Fill signature"),
         });
 
         Self {
