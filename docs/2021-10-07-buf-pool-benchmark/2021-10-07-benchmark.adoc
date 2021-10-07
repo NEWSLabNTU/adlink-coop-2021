@@ -1,0 +1,70 @@
+# Zenoh's Object Buffer Pool Benchmark (2021-10-07)
+:author: Jerry Lin (林祥瑞), jerry73204@gmail.com
+:nofooter:
+
+## Settings
+
+In this benchmark, each task takes a buffer from the pool, fills it with random numbers and gives it back to the pool. We measure the total elapsed time to consume all tasks.
+
+The following sites are measured.
+
+- `pool`: Zenoh's ObjectBufferPool
+- `arena`: Jerry's implementation of lock-free concurrent buffer pool.
+- `std`: Use standard library's default allocator
+
+This is our settings.
+
+- async-std runtime 1.10.0
+- 32 concurrent workers (on 32-core system)
+- Pool initialization time is separatedly measured
+
+## Zenoh's object buffer pool vs. std
+
+10^6 tasks, 65536 bytes per buffer
+
+```
+init pool:      177.147µs
+pool:   15.313429361s
+std:    7.894207918s
+```
+10^6 tasks, 4096 bytes per buffer
+
+```
+init pool:      69.993µs
+pool:   16.305793979s
+std:    546.341926ms
+```
+
+10^6 tasks, 64 bytes per buffer
+
+```
+init pool:      5.731µs
+pool:   16.200823987s
+std:    325.788024ms
+```
+
+## Lock-free arena vs. std
+
+10^6 tasks, 65536 bytes per buffer
+
+```
+init arena:     8.598253ms
+arena:   2.229351425s
+std:    7.919572742s
+```
+
+10^6 tasks, 4096 bytes per buffer
+
+```
+init arena:     431.249µs
+arena:   567.226069ms
+std:    532.8542ms
+```
+
+10^6 tasks, 64 bytes per buffer
+
+```
+init arena:     12.324µs
+arena:   719.787164ms
+std:    336.515863ms
+```
