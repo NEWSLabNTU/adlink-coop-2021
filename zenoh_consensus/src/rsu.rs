@@ -10,14 +10,15 @@ use sha2::{Digest, Sha256};
 
 type Sha256Hash = Vec<u8>;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct VehicleType {
     pub vehicle_type: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Hash)]
 pub struct Path {
-    pub speed_limit: f64,
+    pub id: usize,
+    pub speed_limit: u64,
     pub allowed_vehicles: Vec<VehicleType>,
     pub soft_timeout: Duration,
     pub hard_timeout: Duration,
@@ -34,13 +35,13 @@ pub struct RBInfo {
     pub spatial_range: SpatialRange,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Priority {
     FirstPathHigher,
     SecondPathHigher,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoutingChart {
     pub paths: Vec<Path>,
     pub conflicting_paths: HashSet<(Path, Path, Priority)>,
@@ -115,6 +116,26 @@ impl RoutingChartBlock {
     pub fn validate(&self) -> bool {
         todo!();
     }
+
+    pub fn new(
+        prev_hash: Sha256Hash,
+        timestamp: HLC,
+        routing_chart: RoutingChart,
+    ) -> RoutingChartBlock {
+        let mut hasher = Sha256::new();
+        let routing_chart_bin = bincode::serialize(&routing_chart).unwrap();
+        hasher.update(routing_chart_bin);
+        todo!("Hash prev_hash, timestamp, and routing_chart");
+        let curr_hash = hasher.finalize().to_vec();
+        let signature = todo!("Fill in signature");
+        RoutingChartBlock {
+            curr_hash,
+            prev_hash,
+            timestamp,
+            routing_chart,
+            signature,
+        }
+    }
 }
 
 pub struct DecisionBlock {
@@ -129,6 +150,25 @@ pub struct DecisionBlock {
 impl DecisionBlock {
     pub fn validate(&self) -> bool {
         todo!();
+    }
+    pub fn new(
+        prev_hash: Sha256Hash,
+        timestamp: HLC,
+        decision: Decision,
+        rb_info: RBInfo,
+    ) -> DecisionBlock {
+        let hasher = Sha256::new();
+        todo!("Hash prev_hash, timestamp, decision, and rb_info");
+        let curr_hash = hasher.finalize().to_vec();
+        let signature = todo!("Fill in signature");
+        DecisionBlock {
+            signature,
+            curr_hash,
+            prev_hash,
+            timestamp,
+            decision,
+            rb_info,
+        }
     }
 }
 
