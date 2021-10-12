@@ -1,4 +1,5 @@
 #![allow(dead_code, unused_variables)]
+use noisy_float::types::R64;
 use std::ops::Deref;
 
 use crate::common::*;
