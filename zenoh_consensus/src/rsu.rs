@@ -123,9 +123,10 @@ impl RoutingChartBlock {
         routing_chart: RoutingChart,
     ) -> RoutingChartBlock {
         let mut hasher = Sha256::new();
+        hasher.update(prev_hash);
         let routing_chart_bin = bincode::serialize(&routing_chart).unwrap();
         hasher.update(routing_chart_bin);
-        todo!("Hash prev_hash, timestamp, and routing_chart");
+        todo!("Hash timestamp");
         let curr_hash = hasher.finalize().to_vec();
         let signature = todo!("Fill in signature");
         RoutingChartBlock {
@@ -157,8 +158,9 @@ impl DecisionBlock {
         decision: Decision,
         rb_info: RBInfo,
     ) -> DecisionBlock {
-        let hasher = Sha256::new();
-        todo!("Hash prev_hash, timestamp, decision, and rb_info");
+        let mut hasher = Sha256::new();
+        hasher.update(prev_hash);
+        todo!("Hash timestamp, decision, and rb_info, requires HLC to be Serializable");
         let curr_hash = hasher.finalize().to_vec();
         let signature = todo!("Fill in signature");
         DecisionBlock {
