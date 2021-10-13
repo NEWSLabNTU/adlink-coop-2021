@@ -37,7 +37,10 @@ pub struct RBInfo {
 }
 impl RBInfo {
     pub fn validate(&self) -> bool {
-        todo!();
+        if self.spatial_range.range > 0 {
+            return true;
+        }
+        return false;
     }
 }
 
