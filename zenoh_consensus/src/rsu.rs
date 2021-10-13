@@ -351,11 +351,18 @@ pub struct RSU {
     decision_chain: BlockChain,
     key: zenoh::Path,
     cert: Certificate,
+    hlc_instance: HLC,
 }
 
 impl RSU {
-    pub fn new(_cert: Certificate) -> RSU {
-        todo!("Add implementation");
+    pub fn new(cert: Certificate, key: zenoh::Path) -> RSU {
+        RSU {
+            route_chain: BlockChain::new(),
+            decision_chain: BlockChain::new(),
+            key,
+            cert,
+            hlc_instance: HLC::default(),
+        }
     }
 
     pub fn cert(self) -> Certificate {
