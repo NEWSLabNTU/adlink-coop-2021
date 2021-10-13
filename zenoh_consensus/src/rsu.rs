@@ -1,6 +1,6 @@
 #![allow(dead_code, unused_variables)]
 use noisy_float::types::R64;
-use std::ops::Deref;
+use std::{collections::VecDeque, ops::Deref};
 use uhlc::Timestamp;
 
 use crate::common::*;
@@ -37,7 +37,7 @@ pub struct RBInfo {
 }
 impl RBInfo {
     pub fn validate(&self) -> bool {
-        if self.spatial_range.range > 0 {
+        if self.spatial_range.range > 0.0 {
             return true;
         }
         return false;
@@ -52,13 +52,24 @@ pub enum Priority {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoutingChart {
-    pub paths: Vec<Path>,
+    pub paths: VecDeque<Path>,
     pub conflicting_paths: HashSet<(Path, Path, Priority)>,
 }
 
 impl RoutingChart {
     pub fn validate(&self) -> bool {
-        todo!();
+        if self.paths.len() == 0 {
+            return false;
+        }
+        for (k, v, _) in &self.conflicting_paths {
+            if !self.paths.contains(k) {
+                return false;
+            }
+            if !self.paths.contains(v) {
+                return false;
+            }
+        }
+        return true;
     }
 }
 
@@ -135,16 +146,20 @@ impl RoutingChartBlock {
         };
         if let Some(last_block) = last_block {
             if !(self.prev_hash == last_block.curr_hash) {
+                warn!("prev_hash does not match the hash in last_block");
                 return false;
             }
             if !self.routing_chart.validate() {
+                warn!("Routing Chart is invalid");
                 return false;
             }
             if self.timestamp < last_block.timestamp {
+                warn!("Block timestamp is smaller than that of last_block");
                 return false;
             }
             return true;
         } else {
+            warn!("Block Type incorrect. Requires last_block to be type 'Block::RoutingChart'");
             return false;
         }
     }
@@ -189,21 +204,26 @@ impl DecisionBlock {
         };
         if let Some(last_block) = last_block {
             if !(self.prev_hash == last_block.curr_hash) {
+                warn!("prev_hash does not match the hash in last_block");
                 return false;
             }
             if !self.decision.validate() {
+                warn!("Decision is invalid");
                 return false;
             }
 
             if !self.rb_info.validate() {
+                warn!("RBInfo is invalid");
                 return false;
             }
 
             if self.timestamp < last_block.timestamp {
+                warn!("Block timestamp is smaller than that of last_block");
                 return false;
             }
             return true;
         } else {
+            warn!("Block Type incorrect. Requires last_block to be type 'Block::Decision'");
             return false;
         }
     }
