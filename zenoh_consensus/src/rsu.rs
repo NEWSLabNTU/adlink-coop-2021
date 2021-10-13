@@ -4,12 +4,13 @@ use std::{collections::VecDeque, ops::Deref};
 use uhlc::Timestamp;
 
 use crate::common::*;
-use edcert::{certificate::Certificate, signature::Signature};
+use edcert::certificate::Certificate;
 use textnonce::TextNonce;
 // use maplit::hashset;
 use sha2::{Digest, Sha256};
 
 type Sha256Hash = Vec<u8>;
+type Signature = Vec<u8>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct VehicleType {
@@ -292,20 +293,21 @@ pub struct BlockChain {
 }
 
 impl BlockChain {
-    pub fn new(timestamp: Timestamp) -> Self {
+    pub fn new(timestamp: Timestamp, cert: &Certificate) -> Self {
         let text_nonce = TextNonce::new();
         let mut hasher = Sha256::new();
         hasher.update(text_nonce.into_string());
         let nonce: Sha256Hash = hasher.finalize().to_vec();
+        let signature = cert.sign(&nonce).unwrap();
 
         let init_block = Block::Init(InitBlock {
-            nonce,
+            nonce: nonce.clone(),
             timestamp,
-            signature: todo!("Fill signature"),
+            signature,
         });
 
         Self {
-            logs: vec![nonce],
+            logs: vec![nonce.clone()],
             set: hashmap! {
                 nonce => init_block
             },
@@ -359,8 +361,8 @@ impl RSU {
         let hlc_instance = HLC::default();
         let timestamp = hlc_instance.new_timestamp();
         RSU {
-            route_chain: BlockChain::new(timestamp),
-            decision_chain: BlockChain::new(timestamp),
+            route_chain: BlockChain::new(timestamp, &cert),
+            decision_chain: BlockChain::new(timestamp, &cert),
             key,
             cert,
             hlc_instance,
