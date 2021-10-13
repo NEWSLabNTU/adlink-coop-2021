@@ -197,6 +197,7 @@ pub struct DecisionBlock {
     pub decision: Decision,
     pub rb_info: RBInfo,
 }
+// Todo: Add pointer to RoutingChartBlock
 
 impl DecisionBlock {
     pub fn validate(&self, last_block: &Block) -> bool {
