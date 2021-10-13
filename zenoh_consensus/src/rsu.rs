@@ -169,15 +169,16 @@ impl RoutingChartBlock {
         prev_hash: Sha256Hash,
         timestamp: Timestamp,
         routing_chart: RoutingChart,
+        cert: &Certificate,
     ) -> RoutingChartBlock {
         let mut hasher = Sha256::new();
-        hasher.update(prev_hash);
+        hasher.update(&prev_hash);
         let routing_chart_bin = bincode::serialize(&routing_chart).unwrap();
         hasher.update(routing_chart_bin);
         let timestamp_bin = bincode::serialize(&timestamp).unwrap();
         hasher.update(timestamp_bin);
         let curr_hash = hasher.finalize().to_vec();
-        let signature = todo!("Fill in signature");
+        let signature = cert.sign(&curr_hash).unwrap();
         RoutingChartBlock {
             curr_hash,
             prev_hash,
@@ -233,9 +234,10 @@ impl DecisionBlock {
         timestamp: Timestamp,
         decision: Decision,
         rb_info: RBInfo,
+        cert: &Certificate,
     ) -> DecisionBlock {
         let mut hasher = Sha256::new();
-        hasher.update(prev_hash);
+        hasher.update(&prev_hash);
         let timestamp_bin = bincode::serialize(&timestamp).unwrap();
         hasher.update(timestamp_bin);
         let decision_bin = bincode::serialize(&decision).unwrap();
@@ -243,7 +245,7 @@ impl DecisionBlock {
         let rb_info_bin = bincode::serialize(&rb_info).unwrap();
         hasher.update(rb_info_bin);
         let curr_hash = hasher.finalize().to_vec();
-        let signature = todo!("Fill in signature");
+        let signature = cert.sign(&curr_hash).unwrap();
         DecisionBlock {
             signature,
             curr_hash,
