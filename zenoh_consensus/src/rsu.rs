@@ -26,11 +26,11 @@ pub struct Path {
     pub capacity: u64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpatialRange {
     pub range: f64,
 }
-
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RBInfo {
     pub deadline: Timestamp,
     pub spatial_range: SpatialRange,
@@ -155,7 +155,8 @@ impl RoutingChartBlock {
         hasher.update(prev_hash);
         let routing_chart_bin = bincode::serialize(&routing_chart).unwrap();
         hasher.update(routing_chart_bin);
-        todo!("Hash timestamp");
+        let timestamp_bin = bincode::serialize(&timestamp).unwrap();
+        hasher.update(timestamp_bin);
         let curr_hash = hasher.finalize().to_vec();
         let signature = todo!("Fill in signature");
         RoutingChartBlock {
@@ -211,7 +212,12 @@ impl DecisionBlock {
     ) -> DecisionBlock {
         let mut hasher = Sha256::new();
         hasher.update(prev_hash);
-        todo!("Hash timestamp, decision, and rb_info, requires HLC to be Serializable");
+        let timestamp_bin = bincode::serialize(&timestamp).unwrap();
+        hasher.update(timestamp_bin);
+        let decision_bin = bincode::serialize(&decision).unwrap();
+        hasher.update(decision_bin);
+        let rb_info_bin = bincode::serialize(&rb_info).unwrap();
+        hasher.update(rb_info_bin);
         let curr_hash = hasher.finalize().to_vec();
         let signature = todo!("Fill in signature");
         DecisionBlock {
@@ -227,13 +233,14 @@ impl DecisionBlock {
 
 /// Actions of intentions vehicles have
 /// Path indicates a possible path
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Action {
     Stop,
     Proceed(Path),
 }
 
 /// decision_map: node -> (action, start_time, end_time)
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Decision {
     pub decision_map: HashMap<Path, (Action, Timestamp, Timestamp)>,
 }
