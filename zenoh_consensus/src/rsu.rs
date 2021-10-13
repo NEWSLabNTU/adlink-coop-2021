@@ -101,10 +101,10 @@ impl Block {
 
     pub fn get_timestamp(&self) -> Timestamp {
         match self {
-            Self::Init(block) => todo!("Solve HLC clone/copy issue"),
-            Self::Phantom(block) => todo!("Solve HLC clone/copy issue"),
-            Self::RoutingChart(block) => todo!("Solve HLC clone/copy issue"),
-            Self::Decision(block) => todo!("Solve HLC clone/copy issue"),
+            Self::Init(block) => block.timestamp.clone(),
+            Self::Phantom(block) => block.timestamp.clone(),
+            Self::RoutingChart(block) => block.timestamp.clone(),
+            Self::Decision(block) => block.timestamp.clone(),
         }
     }
 
