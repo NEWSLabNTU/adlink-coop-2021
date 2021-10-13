@@ -35,6 +35,11 @@ pub struct RBInfo {
     pub deadline: Timestamp,
     pub spatial_range: SpatialRange,
 }
+impl RBInfo {
+    pub fn validate(&self) -> bool {
+        todo!();
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Priority {
@@ -46,6 +51,12 @@ pub enum Priority {
 pub struct RoutingChart {
     pub paths: Vec<Path>,
     pub conflicting_paths: HashSet<(Path, Path, Priority)>,
+}
+
+impl RoutingChart {
+    pub fn validate(&self) -> bool {
+        todo!();
+    }
 }
 
 pub enum Block {
@@ -83,11 +94,11 @@ impl Block {
         }
     }
 
-    pub fn validate(&self) -> bool {
+    pub fn validate(&self, last_block: &Block) -> bool {
         match self {
             Self::Init(block) => true,
             Self::Phantom(block) => true,
-            Self::RoutingChart(block) => block.validate(),
+            Self::RoutingChart(block) => block.validate(last_block),
             Self::Decision(block) => block.validate(),
         }
     }
@@ -114,8 +125,25 @@ pub struct RoutingChartBlock {
 }
 
 impl RoutingChartBlock {
-    pub fn validate(&self) -> bool {
-        todo!();
+    pub fn validate(&self, last_block: &Block) -> bool {
+        let last_block = match last_block {
+            Block::RoutingChart(block) => Some(block),
+            _ => None,
+        };
+        if let Some(last_block) = last_block {
+            if !(self.prev_hash == last_block.curr_hash) {
+                return false;
+            }
+            if !self.routing_chart.validate() {
+                return false;
+            }
+            if self.timestamp < last_block.timestamp {
+                return false;
+            }
+            return true;
+        } else {
+            return false;
+        }
     }
 
     pub fn new(
@@ -150,8 +178,30 @@ pub struct DecisionBlock {
 }
 
 impl DecisionBlock {
-    pub fn validate(&self) -> bool {
-        todo!();
+    pub fn validate(&self, last_block: &Block) -> bool {
+        let last_block = match last_block {
+            Block::Decision(block) => Some(block),
+            _ => None,
+        };
+        if let Some(last_block) = last_block {
+            if !(self.prev_hash == last_block.curr_hash) {
+                return false;
+            }
+            if !self.decision.validate() {
+                return false;
+            }
+
+            if !self.rb_info.validate() {
+                return false;
+            }
+
+            if self.timestamp < last_block.timestamp {
+                return false;
+            }
+            return true;
+        } else {
+            return false;
+        }
     }
     pub fn new(
         prev_hash: Sha256Hash,
