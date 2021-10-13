@@ -259,7 +259,7 @@ impl DecisionBlock {
 
 /// Actions of intentions vehicles have
 /// Path indicates a possible path
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq)]
 pub enum Action {
     Stop,
     Proceed(Path),
@@ -272,7 +272,11 @@ pub struct Decision {
 }
 impl Decision {
     pub fn validate(&self) -> bool {
-        todo!();
+        let len_decision_map = self.decision_map.len();
+        for (path, (action, start_time, end_time)) in &self.decision_map {
+            todo!("Get routing chart to find conflicting paths with current path, and check if there exists a conflicting path with overlapping timestamp");
+        }
+        return true;
     }
 }
 
