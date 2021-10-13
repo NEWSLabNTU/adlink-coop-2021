@@ -1,6 +1,7 @@
 #![allow(dead_code, unused_variables)]
 use noisy_float::types::R64;
 use std::ops::Deref;
+use uhlc::Timestamp;
 
 use crate::common::*;
 use edcert::{certificate::Certificate, signature::Signature};
@@ -31,7 +32,7 @@ pub struct SpatialRange {
 }
 
 pub struct RBInfo {
-    pub deadline: HLC,
+    pub deadline: Timestamp,
     pub spatial_range: SpatialRange,
 }
 
@@ -73,7 +74,7 @@ impl Block {
         }
     }
 
-    pub fn get_timestamp(&self) -> HLC {
+    pub fn get_timestamp(&self) -> Timestamp {
         match self {
             Self::Init(block) => todo!("Solve HLC clone/copy issue"),
             Self::Phantom(block) => todo!("Solve HLC clone/copy issue"),
@@ -94,20 +95,20 @@ impl Block {
 
 pub struct InitBlock {
     pub nonce: Sha256Hash,
-    pub timestamp: HLC,
+    pub timestamp: Timestamp,
     pub signature: Signature,
 }
 
 pub struct PhantomBlock {
     pub curr_hash: Sha256Hash,
-    pub timestamp: HLC,
+    pub timestamp: Timestamp,
     pub signature: Signature,
 }
 
 pub struct RoutingChartBlock {
     pub curr_hash: Sha256Hash,
     pub prev_hash: Sha256Hash,
-    pub timestamp: HLC,
+    pub timestamp: Timestamp,
     pub routing_chart: RoutingChart,
     pub signature: Signature,
 }
@@ -119,7 +120,7 @@ impl RoutingChartBlock {
 
     pub fn new(
         prev_hash: Sha256Hash,
-        timestamp: HLC,
+        timestamp: Timestamp,
         routing_chart: RoutingChart,
     ) -> RoutingChartBlock {
         let mut hasher = Sha256::new();
@@ -143,7 +144,7 @@ pub struct DecisionBlock {
     pub signature: Signature,
     pub curr_hash: Sha256Hash,
     pub prev_hash: Sha256Hash,
-    pub timestamp: HLC,
+    pub timestamp: Timestamp,
     pub decision: Decision,
     pub rb_info: RBInfo,
 }
@@ -154,7 +155,7 @@ impl DecisionBlock {
     }
     pub fn new(
         prev_hash: Sha256Hash,
-        timestamp: HLC,
+        timestamp: Timestamp,
         decision: Decision,
         rb_info: RBInfo,
     ) -> DecisionBlock {
@@ -184,7 +185,12 @@ pub enum Action {
 
 /// decision_map: node -> (action, start_time, end_time)
 pub struct Decision {
-    pub decision_map: HashMap<Path, (Action, HLC, HLC)>,
+    pub decision_map: HashMap<Path, (Action, Timestamp, Timestamp)>,
+}
+impl Decision {
+    pub fn validate(&self) -> bool {
+        todo!();
+    }
 }
 
 pub struct PreDecision {
@@ -194,8 +200,8 @@ pub struct PreDecision {
 pub struct Proposal {
     pub sender: String,
     pub action: Action,
-    pub start_time: HLC,
-    pub end_time: HLC,
+    pub start_time: Timestamp,
+    pub end_time: Timestamp,
     pub latest_decision_block: Sha256Hash,
     pub latest_route_block: Sha256Hash,
 }
