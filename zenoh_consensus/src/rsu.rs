@@ -99,7 +99,7 @@ impl Block {
             Self::Init(block) => true,
             Self::Phantom(block) => true,
             Self::RoutingChart(block) => block.validate(last_block),
-            Self::Decision(block) => block.validate(),
+            Self::Decision(block) => block.validate(last_block),
         }
     }
 }
