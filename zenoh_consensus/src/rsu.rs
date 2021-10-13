@@ -292,7 +292,7 @@ pub struct BlockChain {
 }
 
 impl BlockChain {
-    pub fn new() -> Self {
+    pub fn new(timestamp: Timestamp) -> Self {
         let text_nonce = TextNonce::new();
         let mut hasher = Sha256::new();
         hasher.update(text_nonce.into_string());
@@ -300,7 +300,7 @@ impl BlockChain {
 
         let init_block = Block::Init(InitBlock {
             nonce,
-            timestamp: todo!("Fill timestamp"),
+            timestamp,
             signature: todo!("Fill signature"),
         });
 
@@ -356,12 +356,14 @@ pub struct RSU {
 
 impl RSU {
     pub fn new(cert: Certificate, key: zenoh::Path) -> RSU {
+        let hlc_instance = HLC::default();
+        let timestamp = hlc_instance.new_timestamp();
         RSU {
-            route_chain: BlockChain::new(),
-            decision_chain: BlockChain::new(),
+            route_chain: BlockChain::new(timestamp),
+            decision_chain: BlockChain::new(timestamp),
             key,
             cert,
-            hlc_instance: HLC::default(),
+            hlc_instance,
         }
     }
 
