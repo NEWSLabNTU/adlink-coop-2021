@@ -266,15 +266,15 @@ pub enum Action {
     Proceed(Path),
 }
 
-/// decision_map: node -> (action, start_time, end_time)
+/// decision_map: node (vehicle_id) -> (action, start_time, end_time)
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Decision {
-    pub decision_map: HashMap<Path, (Action, Timestamp, Timestamp)>,
+    pub decision_map: HashMap<usize, (Action, Timestamp, Timestamp)>,
 }
 impl Decision {
     pub fn validate(&self) -> bool {
         let len_decision_map = self.decision_map.len();
-        for (path, (action, start_time, end_time)) in &self.decision_map {
+        for (_, (action, start_time, end_time)) in &self.decision_map {
             todo!("Get routing chart to find conflicting paths with current path, and check if there exists a conflicting path with overlapping timestamp");
         }
         return true;
