@@ -1,6 +1,5 @@
 #![allow(dead_code, unused_variables)]
-use noisy_float::types::R64;
-use std::{collections::VecDeque, ops::Deref};
+use std::collections::VecDeque;
 use uhlc::Timestamp;
 
 use crate::common::*;
