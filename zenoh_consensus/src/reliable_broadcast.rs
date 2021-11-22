@@ -737,7 +737,7 @@ struct Context<T> {
     finished: bool,
     /// The transmitter that sends *echo(m, s)* to [coordinate_worker] if [recv_worker] received one.
     worker_tx: mpsc::Sender<EchoNotify>,
-    /// (Currently not used).
+    /// A zero sized data to make [Context] look like it owns a `<T>`.
     _phantom: PhantomData<T>,
 }
 
