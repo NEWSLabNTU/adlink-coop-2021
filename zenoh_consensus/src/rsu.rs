@@ -43,6 +43,8 @@ pub struct SpatialRange {
 #[derive(Debug, Serialize, Deserialize)]
 /// The information of Reliable Broadcast
 pub struct RBInfo {
+    /// The starting time of the reliable_broadcast
+    pub start_time: Timestamp,
     /// The deadline of the Reliable Broadcast
     pub deadline: Timestamp,
     /// The range in which vehicles should start participating in Reliable Broadcast.
@@ -253,6 +255,8 @@ pub struct DecisionBlock {
     pub rb_info: RBInfo,
     /// The hash of the [RoutingChartBlock] used in the [DecisionBlock].
     pub curr_routing_chart: Sha256Hash,
+    /// The hash of he [RoutingChartBlock] that will be used in next [DecisionBlock].
+    pub fut_routing_chart: Option<Sha256Hash>,
 }
 
 impl DecisionBlock {
@@ -297,6 +301,7 @@ impl DecisionBlock {
     /// * `rb_info` - The [RBInfo] for the next reliable broadcast.
     /// * `cert` - The certificate of the RSU for signing signatures.
     /// * `curr_routing_chart`: The hash of the [RoutingChartBlock] used in the [DecisionBlock].
+    /// * `fut_routing_chart`: The hash of the [RoutingChartBlock] that will be sed in the next [DecisionBlock].
     pub fn new(
         prev_hash: Sha256Hash,
         timestamp: Timestamp,
@@ -304,6 +309,7 @@ impl DecisionBlock {
         rb_info: RBInfo,
         cert: &Certificate,
         curr_routing_chart: Sha256Hash,
+        fut_routing_chart: Option<Sha256Hash>,
     ) -> DecisionBlock {
         let mut hasher = Sha256::new();
         hasher.update(&prev_hash);
@@ -323,6 +329,7 @@ impl DecisionBlock {
             decision,
             rb_info,
             curr_routing_chart,
+            fut_routing_chart,
         }
     }
 }
@@ -339,8 +346,9 @@ pub enum Action {
 #[derive(Debug, Serialize, Deserialize)]
 /// A collection of decisions on what actions should each vehicle take with starting and ending time specified.
 pub struct Decision {
-    /// decision_map: node (vehicle_id) -> ([Action], start_time, end_time)
+    /// decision_map:  (vehicle_id) -> ([Action], start_time, end_time)
     pub decision_map: HashMap<usize, (Action, Timestamp, Timestamp)>,
+    /// The routing chart used in the decision.
     pub curr_routing_chart: RoutingChart,
 }
 impl Decision {
@@ -381,6 +389,7 @@ pub struct PreDecision {
     pub proposals: Vec<Proposal>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
 /// The action that an vehicle would like to take from a specific starting and ending time.
 pub struct Proposal {
     /// The proposing vehicle.
