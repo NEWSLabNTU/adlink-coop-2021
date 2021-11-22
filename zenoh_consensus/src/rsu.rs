@@ -1,4 +1,5 @@
 #![allow(dead_code, unused_variables)]
+use itertools::Itertools;
 use std::collections::VecDeque;
 use uhlc::Timestamp;
 
@@ -250,8 +251,9 @@ pub struct DecisionBlock {
     pub decision: Decision,
     /// The [RBInfo] for the next decision time window.
     pub rb_info: RBInfo,
+    /// The hash of the [RoutingChartBlock] used in the [DecisionBlock].
+    pub curr_routing_chart: Sha256Hash,
 }
-// Todo: Add pointer to RoutingChartBlock
 
 impl DecisionBlock {
     /// A function that validates the [DecisionBlock].
@@ -294,12 +296,14 @@ impl DecisionBlock {
     /// * `decision` - The [Decision]s collected in a decision time window.
     /// * `rb_info` - The [RBInfo] for the next reliable broadcast.
     /// * `cert` - The certificate of the RSU for signing signatures.
+    /// * `curr_routing_chart`: The hash of the [RoutingChartBlock] used in the [DecisionBlock].
     pub fn new(
         prev_hash: Sha256Hash,
         timestamp: Timestamp,
         decision: Decision,
         rb_info: RBInfo,
         cert: &Certificate,
+        curr_routing_chart: Sha256Hash,
     ) -> DecisionBlock {
         let mut hasher = Sha256::new();
         hasher.update(&prev_hash);
@@ -318,6 +322,7 @@ impl DecisionBlock {
             timestamp,
             decision,
             rb_info,
+            curr_routing_chart,
         }
     }
 }
@@ -441,6 +446,22 @@ impl BlockChain {
             }
             self.logs = new_log;
             Ok(())
+        }
+    }
+
+    pub fn get_block_by_hash(&self, block_hash: &Sha256Hash) -> Option<&Block> {
+        if self.set.contains_key(block_hash) {
+            return self.set.get(block_hash);
+        } else {
+            return None;
+        }
+    }
+
+    pub fn get_last_block(&self) -> Option<&Block> {
+        if self.logs.len() == 0 {
+            return None;
+        } else {
+            return self.get_block_by_hash(self.logs.last().unwrap());
         }
     }
 }

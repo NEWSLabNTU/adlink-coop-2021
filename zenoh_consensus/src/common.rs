@@ -6,6 +6,7 @@ pub use futures::{
     stream::{Stream, StreamExt, TryStreamExt},
 };
 pub use log::{debug, warn};
+pub use maplit::hashmap;
 pub use owning_ref::ArcRef;
 pub use rand::prelude::*;
 pub use serde::{
@@ -37,8 +38,8 @@ pub use std::{
 pub use tokio::sync::{mpsc, oneshot, watch, Notify};
 pub use uhlc::*;
 pub use zenoh::{Selector, Value, Workspace, Zenoh};
-pub use maplit::hashmap;
 
 pub type Fallible<T> = Result<T>;
 pub use edcert;
+pub use itertools;
 pub use sha2;
