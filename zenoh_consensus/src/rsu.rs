@@ -472,6 +472,9 @@ impl BlockChain {
         }
     }
 
+    /// A function that returns the [Block] in the [BlockChain] given the hash of the [Block].
+    /// If [Block] is not in the [BlockChain], `None` will be returned.
+    /// * `block_hash`: The hash of the [Block] to look up in [BlockChain].
     pub fn get_block_by_hash(&self, block_hash: &Sha256Hash) -> Option<&Block> {
         if self.set.contains_key(block_hash) {
             return self.set.get(block_hash);
@@ -480,6 +483,8 @@ impl BlockChain {
         }
     }
 
+    /// A function that returns the last [Block] in the [BlockChain].
+    /// `None` will be returned if the [BlockChain] contains no blocks.
     pub fn get_last_block(&self) -> Option<&Block> {
         if self.logs.len() == 0 {
             return None;
@@ -529,6 +534,11 @@ impl RSU {
 
     /// A function that returns blocks in [BlockChain]s for log query.
     pub fn query_log(duration: Duration) -> (Vec<DecisionBlock>, Vec<RoutingChartBlock>) {
+        todo!("Add implementation");
+    }
+
+    /// A function that returns the latest [DecisionBlock] along with the latest [RoutingChartBlock].
+    pub fn query_latest_blocks(self) -> (DecisionBlock, RoutingChartBlock) {
         todo!("Add implementation");
     }
 
