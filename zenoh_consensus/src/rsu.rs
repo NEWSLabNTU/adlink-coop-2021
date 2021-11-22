@@ -71,7 +71,7 @@ pub struct RoutingChart {
     /// A set of paths that vehicles can take.
     pub paths: VecDeque<Path>,
     /// A set of conflicting paths, with priority between them specified.
-    pub conflicting_paths: HashSet<(Path, Path, Priority)>,
+    pub conflicting_paths: HashMap<(Path, Path), Priority>,
 }
 
 impl RoutingChart {
@@ -82,7 +82,7 @@ impl RoutingChart {
             return false;
         }
         // check if conflicting paths are contained in paths
-        for (k, v, _) in &self.conflicting_paths {
+        for ((k, v), _) in &self.conflicting_paths {
             if !self.paths.contains(k) {
                 return false;
             }
@@ -341,13 +341,36 @@ pub enum Action {
 pub struct Decision {
     /// decision_map: node (vehicle_id) -> ([Action], start_time, end_time)
     pub decision_map: HashMap<usize, (Action, Timestamp, Timestamp)>,
+    pub curr_routing_chart: RoutingChart,
 }
 impl Decision {
     /// A function that validates the [Decision].
     pub fn validate(&self) -> bool {
         let len_decision_map = self.decision_map.len();
-        for (_, (action, start_time, end_time)) in &self.decision_map {
-            todo!("Get routing chart to find conflicting paths with current path, and check if there exists a conflicting path with overlapping timestamp");
+        for (decision_1, decision_2) in self.decision_map.iter().tuple_combinations() {
+            let (id_1, (action_1, start_1, end_1)) = decision_1;
+            let (id_2, (action_2, start_2, end_2)) = decision_2;
+            if id_1 == id_2 {
+                warn!("Multiple decisions from the same peer.");
+                return false;
+            }
+            if (start_1 >= start_2 && start_1 <= end_2) || (end_1 >= start_2 && end_1 <= end_2) {
+                if let Action::Proceed(path_1) = action_1 {
+                    if let Action::Proceed(path_2) = action_2 {
+                        if (self
+                            .curr_routing_chart
+                            .conflicting_paths
+                            .contains_key(&(path_1.clone(), path_2.clone())))
+                            || (self
+                                .curr_routing_chart
+                                .conflicting_paths
+                                .contains_key(&(path_2.clone(), path_1.clone())))
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
         }
         return true;
     }
