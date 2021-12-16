@@ -1,7 +1,10 @@
 [workspace]
 members = [
     "zenoh_consensus",
-    "spatial-query"
+    "spatial-query",
+]
+exclude = [
+    "reliable_broadcast",
 ]
 
 [profile.dev.package."*"]
