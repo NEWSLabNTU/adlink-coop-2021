@@ -1,11 +1,9 @@
 use zenoh_consensus::{common::*, reliable_broadcast, utils};
 
-
-
 use json5;
 
 #[async_std::main]
-async fn main(){
+async fn main() {
     pretty_env_logger::init();
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,22 +38,30 @@ async fn main(){
             Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("tests")
                 .join("reliable_broadcast_test.json5"),
-        ).unwrap();
+        )
+        .unwrap();
         json5::from_str(&text).unwrap()
     };
     let zenoh_dir = &zenoh_dir;
-    let remote_peer_locator = & remote_peer_locator;
+    let remote_peer_locator = &remote_peer_locator;
     eprintln!("{:?}", Instant::now());
-    let until =
-        Instant::now() + Duration::from_millis((round_timeout_ms * (max_rounds+extra_rounds+10) + 120*num_peers + 100*num_msgs + initial_delay) as u64);
-    
-    let start_until = 
-        Instant::now() + Duration::from_millis((800 + 120*num_peers) as u64); // wait till all peers are ready
+    let until = Instant::now()
+        + Duration::from_millis(
+            (round_timeout_ms * (max_rounds + extra_rounds + 10)
+                + 120 * num_peers
+                + 100 * num_msgs
+                + initial_delay) as u64,
+        );
+
+    let start_until = Instant::now() + Duration::from_millis((800 + 120 * num_peers) as u64); // wait till all peers are ready
 
     let futures = (local_peer_id_start..local_peer_id_end).map(|peer_index| async move {
         let mut config = zenoh::ConfigProperties::default();
         config.insert(zenoh::net::config::ZN_ADD_TIMESTAMP_KEY, "true".to_string());
-        config.insert(zenoh::net::config::ZN_PEER_KEY, remote_peer_locator.to_string());
+        config.insert(
+            zenoh::net::config::ZN_PEER_KEY,
+            remote_peer_locator.to_string(),
+        );
         let zenoh = Arc::new(Zenoh::new(config).await?);
 
         let name = format!("peer_{}", peer_index);
@@ -82,7 +88,7 @@ async fn main(){
                 for seq in 0..num_msgs {
                     let mut rand_jitter: u8 = rng.gen();
                     rand_jitter = rand_jitter % 50;
-                    async_std::task::sleep(Duration::from_millis(100+rand_jitter as u64)).await;
+                    async_std::task::sleep(Duration::from_millis(100 + rand_jitter as u64)).await;
 
                     let data: u8 = rng.gen();
                     eprintln!("{} sends seq={}, data={}", name, seq, data);
@@ -130,5 +136,4 @@ async fn main(){
         Fallible::Ok(())
     });
     futures::future::try_join_all(futures).await.unwrap();
-
 }

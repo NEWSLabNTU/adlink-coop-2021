@@ -1,7 +1,6 @@
 use crate::common::*;
 use async_std::sync::Mutex;
 
-
 pub struct EventualQueue {
     id: usize,
     zenoh: Arc<Zenoh>,
