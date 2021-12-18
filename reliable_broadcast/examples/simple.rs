@@ -53,6 +53,7 @@ async fn main() -> Result<(), Error> {
         json5::from_str(&text)?
     };
 
+    let startup_duration = Duration::from_millis(3000);
     let total_msgs = num_msgs * num_peers;
     let interval = (round_timeout * max_rounds as u32) + Duration::from_millis(50);
 
@@ -60,7 +61,9 @@ async fn main() -> Result<(), Error> {
         let zenoh_key = zenoh_key.clone();
 
         async_std::task::spawn(async move {
-            let session = Arc::new(zenoh::open(zn::config::default()).await?);
+            let mut config = zn::config::default();
+            config.set_add_timestamp(true.into()).unwrap();
+            let session = Arc::new(zenoh::open(config).await?);
             let my_id = session.id().await;
             let (sender, stream) = rb::Config {
                 max_rounds,
@@ -74,6 +77,8 @@ async fn main() -> Result<(), Error> {
             .build(session, zenoh_key)
             .await?;
             let sink = sender.into_sink();
+
+            async_std::task::sleep(startup_duration).await;
 
             let producer_task = {
                 let my_id = my_id.clone();
@@ -98,14 +103,21 @@ async fn main() -> Result<(), Error> {
                 let my_id = my_id.clone();
 
                 async move {
-                    async_std::task::sleep(Duration::from_millis((800 + 120 * num_peers) as u64))
-                        .await;
-
-                    let timeout = interval * num_msgs as u32 + Duration::from_millis(100);
+                    // async_std::task::sleep(Duration::from_millis((5000 + 200 * num_peers) as u64))
+                    //     .await;
+                    // let timeout = interval * num_msgs as u32 + Duration::from_millis(500);
+                    let timeout = Duration::from_secs(20);
 
                     let cnt = stream
                         .take(num_peers * num_msgs)
-                        .take_until(async_std::task::sleep(timeout))
+                        .take_until({
+                            let my_id = my_id.clone();
+
+                            async move {
+                                async_std::task::sleep(timeout).await;
+                                eprintln!("{} timeout", my_id);
+                            }
+                        })
                         .try_fold(0, |cnt, event| {
                             let my_id = my_id.clone();
 
@@ -137,7 +149,12 @@ async fn main() -> Result<(), Error> {
                         .await?;
 
                     if cnt < total_msgs {
-                        eprintln!("{} lost {} broadcast messages.", my_id, total_msgs - cnt);
+                        let lost_msgs = total_msgs - cnt;
+                        let lost_pct = lost_msgs as f64 / total_msgs as f64;
+                        eprintln!(
+                            "{} lost {} broadcast messages ({:.2}%).",
+                            my_id, lost_msgs, lost_pct
+                        );
                     }
 
                     Result::<_, Error>::Ok(())
