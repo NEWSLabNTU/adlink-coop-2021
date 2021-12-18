@@ -22,9 +22,13 @@ pub use std::{
     mem,
     ops::Deref,
     str::FromStr,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicUsize, Ordering::*},
+        Arc,
+    },
     time::Duration,
 };
+pub use uuid::Uuid;
 pub use zenoh::{
     self as zn,
     prelude::*,

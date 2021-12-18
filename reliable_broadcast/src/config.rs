@@ -45,11 +45,12 @@ impl Config {
 
         let state = Arc::new(State::<T> {
             key,
-            my_id: session.id().await,
+            my_id: session.id().await.parse()?,
+            seq_number: AtomicUsize::new(0),
             active_peers: DashSet::new(),
             echo_requests: RwLock::new(DashSet::new()),
             contexts: DashMap::new(),
-            pending_echos: DashSet::new(),
+            pending_echos: DashMap::new(),
             session,
             max_rounds: self.max_rounds,
             extra_rounds: self.extra_rounds,

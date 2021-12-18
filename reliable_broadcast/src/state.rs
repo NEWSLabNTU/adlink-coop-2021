@@ -4,28 +4,31 @@ use zenoh::{
     subscriber::{Reliability, SubMode},
 };
 
-pub struct State<T>
+const ENCODING: Encoding = Encoding::APP_JSON;
+
+pub(crate) struct State<T>
 where
     T: 'static + Serialize + DeserializeOwned + Send + Sync,
 {
-    pub session: Arc<zn::Session>,
-    pub my_id: String,
-    pub key: KeyExpr<'static>,
-    pub active_peers: DashSet<PeerId>,
-    pub echo_requests: RwLock<DashSet<BroadcastId>>,
-    pub contexts: DashMap<BroadcastId, BroadcastContext>,
-    pub pending_echos: DashSet<BroadcastId>,
-    pub commit_tx: flume::Sender<Event<T>>,
+    pub(crate) session: Arc<zn::Session>,
+    pub(crate) my_id: Uuid,
+    pub(crate) seq_number: AtomicUsize,
+    pub(crate) key: KeyExpr<'static>,
+    pub(crate) active_peers: DashSet<Uuid>,
+    pub(crate) echo_requests: RwLock<DashSet<BroadcastId>>,
+    pub(crate) contexts: DashMap<BroadcastId, BroadcastContext>,
+    pub(crate) pending_echos: DashMap<BroadcastId, Arc<DashSet<Uuid>>>,
+    pub(crate) commit_tx: flume::Sender<Event<T>>,
     /// The maximum number of rounds to run the reliable broadcast.
-    pub max_rounds: usize,
+    pub(crate) max_rounds: usize,
     /// The number of extra rounds to send echo(m,s). It will not exceed the `max_rounds`
-    pub extra_rounds: usize,
+    pub(crate) extra_rounds: usize,
     /// The timeout for each round. Must be larger than 2 * `recv_timeout`.
-    pub round_timeout: Duration,
-    pub echo_interval: Duration,
-    pub sub_mode: SubMode,
-    pub reliability: Reliability,
-    pub congestion_control: CongestionControl,
+    pub(crate) round_timeout: Duration,
+    pub(crate) echo_interval: Duration,
+    pub(crate) sub_mode: SubMode,
+    pub(crate) reliability: Reliability,
+    pub(crate) congestion_control: CongestionControl,
 }
 
 impl<T> State<T>
@@ -39,7 +42,14 @@ where
 
     /// Publish a broadcast.
     pub async fn broadcast(self: Arc<Self>, data: T) -> Result<(), Error> {
-        let msg: Message<T> = Broadcast { data }.into();
+        let seq = self.seq_number.fetch_add(1, SeqCst);
+
+        let msg: Message<T> = Broadcast {
+            from: self.my_id,
+            seq,
+            data,
+        }
+        .into();
         let value: Value = serde_json::to_value(&msg)?.into();
         self.session
             .put(&self.key, value)
@@ -51,13 +61,17 @@ where
     }
 
     /// Process an input broadcast.
-    fn handle_broadcast(self: Arc<Self>, sample: Sample, msg: Broadcast<T>) {
-        let Broadcast { data } = msg;
-        let peer_id = sample.source_info.source_id.unwrap();
-        let seq = sample.source_info.source_sn.unwrap();
-        let broadcast_id = BroadcastId { peer_id, seq };
-        self.active_peers.insert(peer_id);
-        debug!("{} -> {}: broadcast, seq={}", peer_id, self.my_id, seq);
+    fn handle_broadcast(self: Arc<Self>, _sample: Sample, msg: Broadcast<T>) {
+        // TODO: check timestamp
+        // let peer_id = sample.source_info.source_id.unwrap();
+        // let seq = sample.source_info.source_sn.unwrap();
+
+        let broadcast_id = msg.broadcast_id();
+        self.active_peers.insert(broadcast_id.broadcaster);
+        debug!(
+            "{} -> {}: broadcast, seq={}",
+            broadcast_id.broadcaster, self.my_id, broadcast_id.seq
+        );
 
         use dashmap::mapref::entry::Entry::*;
         match self.contexts.entry(broadcast_id) {
@@ -68,11 +82,18 @@ where
                 );
             }
             Vacant(entry) => {
-                let acked_peers = Arc::new(DashSet::new());
+                // remove related pending echos
+                let acked_peers =
+                    if let Some((_, acked_peers)) = self.pending_echos.remove(&broadcast_id) {
+                        acked_peers
+                    } else {
+                        Arc::new(DashSet::new())
+                    };
+
                 let task = async_std::task::spawn(self.clone().run_broadcast_worker(
                     broadcast_id,
                     acked_peers.clone(),
-                    data,
+                    msg.data,
                 ));
 
                 let context = BroadcastContext {
@@ -80,49 +101,55 @@ where
                     task,
                 };
 
-                // remove related pending echos
-                if self.pending_echos.remove(&broadcast_id).is_some() {
-                    context.acked.insert(peer_id);
-                }
-
                 entry.insert(context);
             }
         }
     }
 
     /// Process an input present message.
-    fn handle_present(&self, sample: Sample, msg: Present) {
+    fn handle_present(&self, _sample: Sample, msg: Present) {
+        let Present { from: sender } = msg;
         // TODO: check timestamp
-        let peer_id = sample.source_info.source_id.unwrap();
-        debug!("{} -> {}: present", peer_id, self.my_id);
-        self.active_peers.insert(peer_id);
+        // let peer_id = sample.source_info.source_id.unwrap();
+
+        debug!("{} -> {}: present", sender, self.my_id);
+        self.active_peers.insert(sender);
     }
 
     /// Process an input echo.
-    fn handle_echo(&self, sample: Sample, msg: Echo) {
-        let peer_id = sample.source_info.source_id.unwrap();
-        self.active_peers.insert(peer_id);
+    fn handle_echo(&self, _sample: Sample, msg: Echo) {
+        // TODO: check timestamp
+        // let peer_id = sample.source_info.source_id.unwrap();
+
+        let sender = msg.from;
+        self.active_peers.insert(sender);
 
         msg.broadcast_ids.into_iter().for_each(|broadcast_id| {
             debug!(
                 "{} -> {}: echo, broadcast={}",
-                peer_id, self.my_id, broadcast_id,
+                sender, self.my_id, broadcast_id,
             );
 
             match self.contexts.get(&broadcast_id) {
                 Some(context) => {
                     // save the echoing peer id to corr. broadcast
-                    context.acked.insert(peer_id);
+                    context.acked.insert(sender);
                 }
                 None => {
                     info!(
                         "{} received echo from {} for broadcast_id {}, \
                  but broadcast was not received",
-                        self.my_id, peer_id, broadcast_id
+                        self.my_id, sender, broadcast_id
                     );
 
                     // save the echo message
-                    self.pending_echos.insert(broadcast_id);
+                    use dashmap::mapref::entry::Entry::*;
+
+                    let acked_peers = match self.pending_echos.entry(broadcast_id) {
+                        Occupied(entry) => entry.into_ref(),
+                        Vacant(entry) => entry.insert(Arc::new(DashSet::new())),
+                    };
+                    acked_peers.insert(sender);
                 }
             }
         });
@@ -138,20 +165,22 @@ where
             .await?;
         let receiver = subscriber.receiver().clone();
         let future = receiver
-            .filter_map(|sample| async move {
+            .filter_map(|mut sample| async move {
                 if sample.kind != SampleKind::Put {
                     return None;
                 }
 
+                sample.value = sample.value.encoding(ENCODING);
+
                 guard!(let Some(value) = sample.value.as_json() else {
-                    // TODO: warning
+                    debug!("unable to decode message: not JSON format");
                     return None;
                 });
 
                 let value: Message<T> = match serde_json::from_value(value) {
                     Ok(value) => value,
-                    Err(_err) => {
-                        // TODO: warning
+                    Err(err) => {
+                        debug!("unable to decode message: {:?}", err);
                         return None;
                     }
                 };
@@ -191,13 +220,17 @@ where
                             mem::take(&mut *echo_requests)
                         };
                         let broadcast_ids: Vec<_> = echo_requests.into_iter().collect();
-                        let msg: Message<T> = Echo { broadcast_ids }.into();
+                        let msg: Message<T> = Echo {
+                            from: me.my_id.clone(),
+                            broadcast_ids,
+                        }
+                        .into();
                         let value: Value = serde_json::to_value(&msg)?.into();
                         me.session
                             .put(&me.key, value)
                             .congestion_control(CongestionControl::Drop)
                             .kind(SampleKind::Put)
-                            .encoding(Encoding::TEXT_PLAIN)
+                            .encoding(ENCODING)
                             .await?;
                         Result::<(), Error>::Ok(())
                     }
@@ -214,7 +247,7 @@ where
     async fn run_broadcast_worker(
         self: Arc<Self>,
         broadcast_id: BroadcastId,
-        acked_peers: Arc<DashSet<PeerId>>,
+        acked_peers: Arc<DashSet<Uuid>>,
         data: T,
     ) {
         async_std::task::spawn(async move {
@@ -243,16 +276,12 @@ where
                         if num_peers >= 4 {
                             // case: n_echos >= 2/3 n_peers
                             if num_echos * 3 >= num_peers * 2 {
-                                debug!(
-                                    "{} accepted a msg in round {} for broadcast_id {}",
-                                    me.my_id, round, broadcast_id
-                                );
                                 Some((round, Ok(())))
                             }
                             // case: n_echos >= 1/3 n_peers
                             else if num_echos * 3 >= num_peers {
                                 // send echo and try again
-                                me.request_sending_echo(broadcast_id).await;
+                                me.request_sending_echo(broadcast_id.clone()).await;
                                 None
                             }
                             // case: n_echos < 1/3 n_peers
@@ -270,18 +299,24 @@ where
                 .next()
                 .await;
 
-            let result = match tuple {
+            match tuple {
                 // accepted before max_roudns
                 Some((last_round, Ok(()))) => {
                     debug!(
-                        "{} accepts the msg for broadcast_id {}",
-                        self.my_id, broadcast_id
+                        "{} accepts a msg in round {} for broadcast_id {}",
+                        self.my_id, last_round, broadcast_id
                     );
+
+                    // trigger event
+                    let event = Event {
+                        result: Ok(data),
+                        broadcast_id,
+                    };
+                    let _ = self.commit_tx.send_async(event).await;
 
                     // unconditionally send echo for more extra rounds
                     let extra_rounds =
-                        cmp::min(last_round + self.extra_rounds + 1, self.max_rounds)
-                            - (last_round + 1);
+                        cmp::min(self.extra_rounds, self.max_rounds - last_round - 1);
 
                     interval
                         .take(extra_rounds)
@@ -291,17 +326,15 @@ where
 
                             async move {
                                 debug!(
-                                    "{} finishes round {} for broadcast_id {}",
+                                    "{} runs extra round {} for broadcast_id {}",
                                     me.my_id,
-                                    round + last_round,
+                                    round + last_round + 1,
                                     broadcast_id
                                 );
                                 me.request_sending_echo(broadcast_id).await;
                             }
                         })
                         .await;
-
-                    Ok(data)
                 }
                 // error before max_roudns
                 Some((_, Err(err))) => {
@@ -310,7 +343,11 @@ where
                         self.my_id, broadcast_id
                     );
 
-                    Err(err)
+                    let event = Event {
+                        result: Err(err),
+                        broadcast_id,
+                    };
+                    let _ = self.commit_tx.send_async(event).await;
                 }
                 // not accepted when reaching max_rounds
                 None => {
@@ -319,15 +356,13 @@ where
                         self.my_id, broadcast_id
                     );
 
-                    Err(ConsensusError::ConsensusLost)
+                    let event = Event {
+                        result: Err(ConsensusError::ConsensusLost),
+                        broadcast_id,
+                    };
+                    let _ = self.commit_tx.send_async(event).await;
                 }
-            };
-
-            let event = Event {
-                result,
-                broadcast_id,
-            };
-            let _ = self.commit_tx.send_async(event).await;
+            }
         })
         .await
     }
@@ -336,7 +371,7 @@ where
 /// The context for a broadcast.
 pub struct BroadcastContext {
     /// The set of peers that replies echos.
-    pub acked: Arc<DashSet<PeerId>>,
+    pub acked: Arc<DashSet<Uuid>>,
     /// The task handle to the broadcast worker.
     pub task: JoinHandle<()>,
 }

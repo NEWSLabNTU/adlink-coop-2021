@@ -6,15 +6,16 @@ use crate::{common::*, utils};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BroadcastId {
     /// The ID of the message sender of (m, s).
-    #[serde(with = "utils::serde_peer_id")]
-    pub peer_id: PeerId,
+    pub broadcaster: Uuid,
+    // #[serde(with = "utils::serde_peer_id")]
+    // pub peer_id: PeerId,
     /// The sequence number of the message.
-    pub seq: ZInt,
+    pub seq: usize,
 }
 
 impl Display for BroadcastId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}/{}", self.peer_id, self.seq)
+        write!(f, "{}/{}", self.broadcaster, self.seq)
     }
 }
 
@@ -51,18 +52,33 @@ impl<T> From<Echo> for Message<T> {
 #[derivative(Hash)]
 /// The structure for the message type *(m, s)*.
 pub struct Broadcast<T> {
+    pub from: Uuid,
+    pub seq: usize,
     /// The data to send in the message.
     pub data: T,
+}
+
+impl<T> Broadcast<T> {
+    pub fn broadcast_id(&self) -> BroadcastId {
+        let Self { from, seq, .. } = *self;
+        BroadcastId {
+            broadcaster: from,
+            seq,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Derivative, Serialize, Deserialize)]
 #[derivative(Hash)]
 /// The structure for the message type *echo(m, s)*
 pub struct Echo {
+    pub from: Uuid,
     pub broadcast_ids: Vec<BroadcastId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Derivative, Serialize, Deserialize)]
 #[derivative(Hash)]
 /// The structure for the message type *present*.
-pub struct Present {}
+pub struct Present {
+    pub from: Uuid,
+}
