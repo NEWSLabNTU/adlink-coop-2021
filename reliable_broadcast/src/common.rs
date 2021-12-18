@@ -1,8 +1,10 @@
+pub use anyhow::anyhow;
 pub use async_std::{sync::RwLock, task::JoinHandle};
 pub use dashmap::{DashMap, DashSet};
 pub use derivative::Derivative;
 pub use futures::{
     future::{self, FutureExt as _, TryFutureExt as _},
+    sink::{self, Sink},
     stream::{self, Stream, StreamExt as _, TryStreamExt as _},
 };
 pub use guard::guard;
@@ -23,7 +25,11 @@ pub use std::{
     sync::Arc,
     time::Duration,
 };
-pub use zenoh as zn;
-pub use zenoh::{prelude::*, publication::CongestionControl};
+pub use zenoh::{
+    self as zn,
+    prelude::*,
+    publication::CongestionControl,
+    subscriber::{Reliability, SubMode},
+};
 
 pub type Error = Box<dyn StdError + Send + Sync + 'static>;

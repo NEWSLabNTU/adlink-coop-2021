@@ -1,89 +1,31 @@
-use crate::{common::*, message::*};
-
-pub use session_ext::*;
-mod session_ext {
-    use super::*;
-
-    #[derive(Debug, Clone)]
-    pub struct SessionExt(Arc<zn::Session>);
-
-    impl SessionExt {
-        pub fn new(session: Arc<zn::Session>) -> Self {
-            Self(session)
-        }
-
-        // pub async fn receiver<'a>(&self, key: impl Into<KeyExpr<'a>>) -> zn::Result<SampleReceiver> {
-        //     let receiver = self.0.subscribe(key).await?.receiver().clone();
-        //     Ok(receiver)
-        // }
-
-        // pub fn inner(&self) -> Arc<zn::Session> {
-        //     self.0.clone()
-        // }
-
-        // pub fn into_inner(self) -> Arc<zn::Session> {
-        //     self.0
-        // }
-
-        // pub async fn sender<'a>(&self, key: impl Into<KeyExpr<'a>>) -> zn::Result<Sender> {
-        //     let key = key.into();
-        //     self.declare_publication(&key).await?;
-
-        //     Ok(Sender {
-        //         session: self.0.clone(),
-        //         key: key.to_owned(),
-        //     })
-        // }
-    }
-
-    impl Deref for SessionExt {
-        type Target = zn::Session;
-
-        fn deref(&self) -> &Self::Target {
-            &*self.0
-        }
-    }
-
-    // pub struct Sender {
-    //     pub(crate) session: Arc<zn::Session>,
-    //     pub(crate) key: KeyExpr<'static>,
-    // }
-
-    // impl Sender {
-    //     pub async fn send(&self, value: impl Into<Value>) -> zn::Result<()> {
-    //         self.session.put(&self.key, value).await
-    //     }
-
-    //     pub fn into_sink(self) -> impl Sink<Value, Error = Error> {
-    //         sink::unfold(self, |sender, value| async move {
-    //             let sender = sender.send(value).await.map(|()| sender)?;
-    //             Ok(sender)
-    //         })
-    //     }
-    // }
-}
+use crate::{common::*, message::*, ConsensusError, Event};
+use zenoh::{
+    publication::CongestionControl,
+    subscriber::{Reliability, SubMode},
+};
 
 pub struct State<T>
 where
     T: 'static + Serialize + DeserializeOwned + Send + Sync,
 {
-    pub session: SessionExt,
+    pub session: Arc<zn::Session>,
     pub my_id: String,
     pub key: KeyExpr<'static>,
     pub active_peers: DashSet<PeerId>,
     pub echo_requests: RwLock<DashSet<BroadcastId>>,
     pub contexts: DashMap<BroadcastId, BroadcastContext>,
     pub pending_echos: DashSet<BroadcastId>,
+    pub commit_tx: flume::Sender<Event<T>>,
     /// The maximum number of rounds to run the reliable broadcast.
     pub max_rounds: usize,
     /// The number of extra rounds to send echo(m,s). It will not exceed the `max_rounds`
     pub extra_rounds: usize,
-    // /// The timeout for receiving first 1/3Nv echo messages.
-    // recv_timeout: Duration,
     /// The timeout for each round. Must be larger than 2 * `recv_timeout`.
     pub round_timeout: Duration,
-    pub echo_period: Duration,
-    pub commit_tx: flume::Sender<Commit<T>>,
+    pub echo_interval: Duration,
+    pub sub_mode: SubMode,
+    pub reliability: Reliability,
+    pub congestion_control: CongestionControl,
 }
 
 impl<T> State<T>
@@ -101,7 +43,7 @@ where
         let value: Value = serde_json::to_value(&msg)?.into();
         self.session
             .put(&self.key, value)
-            .congestion_control(CongestionControl::Drop)
+            .congestion_control(self.congestion_control)
             .kind(SampleKind::Put)
             .encoding(Encoding::TEXT_PLAIN)
             .await?;
@@ -190,7 +132,10 @@ where
     pub async fn run_receiving_worker(self: Arc<Self>) -> Result<(), Error> {
         let me = self.clone();
         let subscriber_builder = me.session.subscribe(&self.key);
-        let mut subscriber = subscriber_builder.best_effort().pull_mode().await?;
+        let mut subscriber = subscriber_builder
+            .reliability(self.reliability)
+            .mode(self.sub_mode)
+            .await?;
         let receiver = subscriber.receiver().clone();
         let future = receiver
             .filter_map(|sample| async move {
@@ -235,7 +180,7 @@ where
     /// Start a worker that periodically publishes batched echos.
     pub async fn run_echo_worker(self: Arc<Self>) -> Result<(), Error> {
         async_std::task::spawn(async move {
-            async_std::stream::interval(self.echo_period)
+            async_std::stream::interval(self.echo_interval)
                 .map(Ok)
                 .try_for_each(|()| {
                     let me = self.clone();
@@ -279,10 +224,10 @@ where
             // send echo
             self.clone().request_sending_echo(broadcast_id).await;
 
-            let (last_round, accepted) = (&mut interval)
+            let tuple = (&mut interval)
                 .take(self.max_rounds)
                 .enumerate()
-                .then(|(round, ())| {
+                .filter_map(|(round, ())| {
                     let me = self.clone();
                     let acked_peers = acked_peers.clone();
 
@@ -302,88 +247,89 @@ where
                                     "{} accepted a msg in round {} for broadcast_id {}",
                                     me.my_id, round, broadcast_id
                                 );
-                                (true, round, true)
+                                Some((round, Ok(())))
                             }
                             // case: n_echos >= 1/3 n_peers
                             else if num_echos * 3 >= num_peers {
                                 // send echo and try again
                                 me.request_sending_echo(broadcast_id).await;
-                                (false, round, false)
+                                None
                             }
                             // case: n_echos < 1/3 n_peers
                             else {
-                                (true, round, false)
+                                Some((round, Err(ConsensusError::InsufficientEchos)))
                             }
                         }
                         // case: n_peers < 4
                         else {
-                            (true, round, false)
+                            Some((round, Err(ConsensusError::InsufficientPeers)))
                         }
                     }
                 })
-                .scan(false, |fused, (finished, round, accepted)| {
-                    let output = if *fused {
-                        None
-                    } else if finished {
-                        *fused = true;
-                        Some((round, accepted))
-                    } else {
-                        Some((round, accepted))
-                    };
-                    async move { output }
-                })
-                .fold((0, false), |_, (round, accepted)| async move {
-                    (round, accepted)
-                })
+                .boxed()
+                .next()
                 .await;
 
-            // if accepting early, unconditionally send echo for more extra rounds
-            if accepted {
-                let extra_rounds = cmp::min(last_round + self.extra_rounds + 1, self.max_rounds)
-                    - (last_round + 1);
+            let result = match tuple {
+                // accepted before max_roudns
+                Some((last_round, Ok(()))) => {
+                    debug!(
+                        "{} accepts the msg for broadcast_id {}",
+                        self.my_id, broadcast_id
+                    );
 
-                interval
-                    .take(extra_rounds)
-                    .enumerate()
-                    .for_each(|(round, ())| {
-                        let me = self.clone();
+                    // unconditionally send echo for more extra rounds
+                    let extra_rounds =
+                        cmp::min(last_round + self.extra_rounds + 1, self.max_rounds)
+                            - (last_round + 1);
 
-                        async move {
-                            debug!(
-                                "{} finishes round {} for broadcast_id {}",
-                                me.my_id,
-                                round + last_round,
-                                broadcast_id
-                            );
-                            me.request_sending_echo(broadcast_id).await;
-                        }
-                    })
-                    .await;
-            }
+                    interval
+                        .take(extra_rounds)
+                        .enumerate()
+                        .for_each(|(round, ())| {
+                            let me = self.clone();
 
-            let commit = if accepted {
-                debug!(
-                    "{} accepts the msg for broadcast_id {}",
-                    self.my_id, broadcast_id
-                );
-                Commit {
-                    data: Some(data),
-                    broadcast_id,
+                            async move {
+                                debug!(
+                                    "{} finishes round {} for broadcast_id {}",
+                                    me.my_id,
+                                    round + last_round,
+                                    broadcast_id
+                                );
+                                me.request_sending_echo(broadcast_id).await;
+                            }
+                        })
+                        .await;
+
+                    Ok(data)
                 }
-            } else {
-                debug!(
-                    "{} rejects the msg for broadcast_id {}",
-                    self.my_id, broadcast_id
-                );
-                Commit {
-                    data: Some(data),
-                    broadcast_id,
+                // error before max_roudns
+                Some((_, Err(err))) => {
+                    debug!(
+                        "{} rejects the msg for broadcast_id {}",
+                        self.my_id, broadcast_id
+                    );
+
+                    Err(err)
+                }
+                // not accepted when reaching max_rounds
+                None => {
+                    debug!(
+                        "{} rejects the msg for broadcast_id {}",
+                        self.my_id, broadcast_id
+                    );
+
+                    Err(ConsensusError::ConsensusLost)
                 }
             };
 
-            let _ = self.commit_tx.send_async(commit).await;
+            let event = Event {
+                result,
+                broadcast_id,
+            };
+            let _ = self.commit_tx.send_async(event).await;
         })
-        .await;
+        .await
     }
 }
 
@@ -393,9 +339,4 @@ pub struct BroadcastContext {
     pub acked: Arc<DashSet<PeerId>>,
     /// The task handle to the broadcast worker.
     pub task: JoinHandle<()>,
-}
-
-pub struct Commit<T> {
-    pub data: Option<T>,
-    pub broadcast_id: BroadcastId,
 }
