@@ -61,7 +61,9 @@ async fn main() -> Result<(), Error> {
         let zenoh_key = zenoh_key.clone();
 
         async_std::task::spawn(async move {
-            let config = zn::net::config::default();
+            let mut config = zn::net::config::peer();
+            config.insert(zn::net::config::ZN_LOCAL_ROUTING_KEY, "false".to_string());
+
             let zenoh = Arc::new(zn::Zenoh::new(config).await?);
             let my_id = zenoh.session().id().await;
             let (sender, stream) = rb::Config {

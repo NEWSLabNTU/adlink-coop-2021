@@ -7,8 +7,6 @@ use crate::{common::*, utils};
 pub struct BroadcastId {
     /// The ID of the message sender of (m, s).
     pub broadcaster: Uuid,
-    // #[serde(with = "utils::serde_peer_id")]
-    // pub peer_id: PeerId,
     /// The sequence number of the message.
     pub seq: usize,
 }

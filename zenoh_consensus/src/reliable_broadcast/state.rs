@@ -154,9 +154,10 @@ where
     /// Start a worker that consumes input messages and handle each message accordingly.
     pub async fn run_receiving_worker(self: Arc<Self>) -> Result<(), Error> {
         let workspace = self.zenoh.workspace(None).await?;
-        let stream = workspace.get(&(&self.key).into()).await?;
 
-        let future = stream
+        let future = workspace
+            .get(&(&self.key).into())
+            .await?
             .filter_map(|data| async move {
                 let msg: Message<T> = match data.value.deserialize_to() {
                     Ok(msg) => msg,

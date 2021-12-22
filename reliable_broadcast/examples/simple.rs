@@ -153,7 +153,9 @@ async fn main() -> Result<(), Error> {
                         let lost_pct = lost_msgs as f64 / total_msgs as f64;
                         eprintln!(
                             "{} lost {} broadcast messages ({:.2}%).",
-                            my_id, lost_msgs, lost_pct
+                            my_id,
+                            lost_msgs,
+                            lost_pct * 100.0
                         );
                     }
 
