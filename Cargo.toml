@@ -21,10 +21,4 @@ overflow-checks = true
 lto = false
 
 [patch.crates-io]
-zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "c3752e4e84efe3d31d1cf703b9c4e417902f0bf7" }
-# zenoh = { git = "https://github.com/NEWSLabNTU/zenoh.git", branch = "newslab-patches" }
-# zenoh = { path = "/home/jerry73204/lab/zenoh/zenoh" }
-# async-std = { path = "/home/jerry73204/data/repos/async-std" }
-# async-global-executor = { path = "/home/jerry73204/data/repos/async-global-executor" }
-# async-executor = { path = "/home/jerry73204/data/repos/async-executor" }
-# nix = { git = "https://github.com/nix-rust/nix.git", tag = "v0.20.0" }
+zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "branch_0.5.0-beta.9" }

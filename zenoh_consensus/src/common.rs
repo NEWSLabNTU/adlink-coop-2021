@@ -1,11 +1,13 @@
-pub use anyhow::{bail, ensure, format_err, Result};
+pub use anyhow::{anyhow, bail, ensure, format_err, Result};
 pub use dashmap::{DashMap, DashSet};
 pub use derivative::Derivative;
 pub use futures::{
-    future::FutureExt,
-    stream::{Stream, StreamExt, TryStreamExt},
+    future::{self, FutureExt as _, TryFutureExt as _},
+    sink::{self, Sink},
+    stream::{self, Stream, StreamExt as _, TryStreamExt as _},
 };
-pub use log::{debug, warn};
+pub use guard::guard;
+pub use log::{debug, info, warn};
 pub use maplit::hashmap;
 pub use owning_ref::ArcRef;
 pub use rand::prelude::*;
@@ -20,6 +22,8 @@ pub use std::{
     cmp::{max, min},
     collections::{hash_map, HashMap, HashSet},
     convert::{TryFrom, TryInto},
+    error::Error as StdError,
+    fmt::{self, Display},
     fs,
     future::Future,
     hash::{Hash, Hasher},
@@ -29,7 +33,7 @@ pub use std::{
     pin::Pin,
     str::*,
     sync::{
-        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering::*},
         Arc, Mutex,
     },
     thread,
@@ -37,7 +41,8 @@ pub use std::{
 };
 pub use tokio::sync::{mpsc, oneshot, watch, Notify};
 pub use uhlc::*;
-pub use zenoh::{Selector, Value, Workspace, Zenoh};
+pub use uuid::Uuid;
+pub use zenoh::{self as zn, Selector, Value, Workspace, Zenoh};
 
 pub type Fallible<T> = Result<T>;
 pub use edcert;

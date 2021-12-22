@@ -31,16 +31,10 @@ textnonce = "1.0.0"
 noisy_float = "0.1.15"
 bincode = "1.3.3"
 itertools = "0.10.1"
-
-[patch.crates-io]
-zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "bd2255dc91359774ea89e29631a743a384fa6899" }
-# zenoh = { git = "https://github.com/NEWSLabNTU/zenoh.git", branch = "newslab-patches" }
-# zenoh = { path = "/home/jerry73204/lab/zenoh/zenoh" }
-# async-std = { path = "/home/jerry73204/data/repos/async-std" }
-# async-global-executor = { path = "/home/jerry73204/data/repos/async-global-executor" }
-# async-executor = { path = "/home/jerry73204/data/repos/async-executor" }
-nix = { git = "https://github.com/nix-rust/nix.git", tag = "v0.20.0" }
-
+guard = "0.5.1"
+flume = "0.10.9"
+uuid = { version = "0.8.2", features = ["serde"] }
 
 [dev-dependencies]
+humantime-serde = "1.0.1"
 json5 = "0.3.0"
