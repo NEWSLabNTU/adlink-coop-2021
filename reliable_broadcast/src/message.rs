@@ -1,6 +1,6 @@
 //! A module that performs operations related to messages.
 
-use crate::{common::*, utils};
+use crate::common::*;
 
 /// The identifier for a broadcast.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

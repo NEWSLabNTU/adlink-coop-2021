@@ -18,6 +18,7 @@ pub use std::{
     error::Error as StdError,
     fmt,
     fmt::Display,
+    future::Future,
     hash::{Hash, Hasher},
     mem,
     ops::Deref,
