@@ -1,7 +1,8 @@
 use super::{message::*, ConsensusError, Event};
 use crate::{common::*, utils::ValueExt as _};
 use async_std::{sync::RwLock, task::JoinHandle};
-use zenoh::{self as zn};
+use rand::rngs::OsRng;
+use zenoh as zn;
 
 type Error = Box<dyn StdError + Send + Sync + 'static>;
 
@@ -152,44 +153,61 @@ where
     }
 
     /// Start a worker that consumes input messages and handle each message accordingly.
-    pub async fn run_receiving_worker(self: Arc<Self>) -> Result<(), Error> {
-        let workspace = self.zenoh.workspace(None).await?;
+    pub fn run_receiving_worker(
+        self: Arc<Self>,
+    ) -> (
+        impl Future<Output = ()>,
+        impl Future<Output = Result<(), Error>>,
+    ) {
+        let (ready_tx, ready_rx) = oneshot::channel();
+        let ready_future = ready_rx.map(|result| result.unwrap());
 
-        let future = workspace
-            .get(&(&self.key).into())
-            .await?
-            .filter_map(|data| async move {
-                let msg: Message<T> = match data.value.deserialize_to() {
-                    Ok(msg) => msg,
-                    Err(err) => {
-                        debug!("unable to decode message: {:?}", err);
+        let future = async_std::task::spawn(async move {
+            let workspace = self.zenoh.workspace(None).await?;
+            let stream = workspace.subscribe(&(&self.key).into()).await?;
+
+            // tell that subscription is ready
+            ready_tx.send(());
+
+            stream
+                .filter_map(|change| async move {
+                    if change.kind != zn::ChangeKind::Put {
                         return None;
                     }
-                };
 
-                Some(msg)
-            })
-            .map(Result::<_, Error>::Ok)
-            .try_for_each_concurrent(8, {
-                let me = self.clone();
-
-                move |msg| {
-                    let me = me.clone();
-
-                    async move {
-                        match msg {
-                            Message::Broadcast(msg) => me.handle_broadcast(msg),
-                            Message::Present(msg) => me.handle_present(msg),
-                            Message::Echo(msg) => me.handle_echo(msg),
+                    let msg: Message<T> = match change.value?.deserialize_to() {
+                        Ok(msg) => msg,
+                        Err(err) => {
+                            debug!("unable to decode message: {:?}", err);
+                            return None;
                         }
-                        Ok(())
+                    };
+
+                    Some(msg)
+                })
+                .map(Result::<_, Error>::Ok)
+                .try_for_each_concurrent(8, {
+                    let me = self.clone();
+
+                    move |msg| {
+                        let me = me.clone();
+
+                        async move {
+                            match msg {
+                                Message::Broadcast(msg) => me.handle_broadcast(msg),
+                                Message::Present(msg) => me.handle_present(msg),
+                                Message::Echo(msg) => me.handle_echo(msg),
+                            }
+                            Ok(())
+                        }
                     }
-                }
-            });
+                })
+                .await?;
 
-        async_std::task::spawn(future).await?;
+            Result::<_, Error>::Ok(())
+        });
 
-        Ok(())
+        (ready_future, future)
     }
 
     /// Start a worker that periodically publishes batched echos.
@@ -203,15 +221,32 @@ where
                     async move {
                         let echo_requests = {
                             let mut echo_requests = me.echo_requests.write().await;
+
+                            // if no echo request is scheduled, skip this time
+                            if echo_requests.is_empty() {
+                                return Ok(());
+                            }
+
                             mem::take(&mut *echo_requests)
                         };
                         let broadcast_ids: Vec<_> = echo_requests.into_iter().collect();
+
+                        debug!(
+                            "{} sends an echo with {} broadcast ids",
+                            me.my_id,
+                            broadcast_ids.len()
+                        );
+
                         let msg: Message<T> = Echo {
                             from: me.my_id.clone(),
                             broadcast_ids,
                         }
                         .into();
                         let value = zn::Value::serialize_from(&msg)?;
+
+                        // let jitter = Duration::from_millis(OsRng.gen_range(0..=10));
+                        // async_std::task::sleep(jitter).await;
+
                         let workspace = me.zenoh.workspace(None).await?;
                         workspace.put(&me.key, value).await?;
                         Result::<(), Error>::Ok(())

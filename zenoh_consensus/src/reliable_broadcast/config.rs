@@ -65,7 +65,7 @@ impl Config {
             // sub_mode: self.sub_mode.into(),
             // reliability: self.reliability.into(),
         });
-        let receiving_worker = state.clone().run_receiving_worker();
+        let (receiving_worker_ready, receiving_worker) = state.clone().run_receiving_worker();
         let echo_worker = state.clone().run_echo_worker();
 
         let sender = Sender {
@@ -96,6 +96,8 @@ impl Config {
             .try_filter_map(|data| async move { Ok(data) });
             stream
         };
+
+        receiving_worker_ready.await;
 
         Ok((sender, stream))
     }
