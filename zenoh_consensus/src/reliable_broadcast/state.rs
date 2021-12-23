@@ -167,7 +167,7 @@ where
             let stream = workspace.subscribe(&(&self.key).into()).await?;
 
             // tell that subscription is ready
-            ready_tx.send(());
+            let _ = ready_tx.send(());
 
             stream
                 .filter_map(|change| async move {

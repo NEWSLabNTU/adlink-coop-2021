@@ -7,8 +7,8 @@
     "echo_interval": "20ms",
     "round_timeout": "100ms",
     "publisher_startup_delay": "10ms",
-    "max_rounds": 3,
-    "extra_rounds": 2,
+    "max_rounds": 1,
+    "extra_rounds": 0,
     // "remote_peer_locator": "tcp/140.112.31.243:7447",
     // "initial_delay": 1000,
     "reliability": "reliable",     // reliable or best_effort

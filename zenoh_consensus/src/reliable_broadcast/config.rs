@@ -124,35 +124,35 @@ pub enum Reliability {
     Reliable,
 }
 
-// impl From<CongestionControl> for zn::publication::CongestionControl {
-//     fn from(from: CongestionControl) -> Self {
-//         type F = CongestionControl;
+impl From<CongestionControl> for zn::net::CongestionControl {
+    fn from(from: CongestionControl) -> Self {
+        type F = CongestionControl;
 
-//         match from {
-//             F::Block => Self::Block,
-//             F::Drop => Self::Drop,
-//         }
-//     }
-// }
+        match from {
+            F::Block => Self::Block,
+            F::Drop => Self::Drop,
+        }
+    }
+}
 
-// impl From<SubMode> for zn::subscriber::SubMode {
-//     fn from(from: SubMode) -> Self {
-//         type F = SubMode;
+impl From<SubMode> for zn::net::SubMode {
+    fn from(from: SubMode) -> Self {
+        type F = SubMode;
 
-//         match from {
-//             F::Push => Self::Push,
-//             F::Pull => Self::Pull,
-//         }
-//     }
-// }
+        match from {
+            F::Push => Self::Push,
+            F::Pull => Self::Pull,
+        }
+    }
+}
 
-// impl From<Reliability> for zn::subscriber::Reliability {
-//     fn from(from: Reliability) -> Self {
-//         type F = Reliability;
+impl From<Reliability> for zn::net::Reliability {
+    fn from(from: Reliability) -> Self {
+        type F = Reliability;
 
-//         match from {
-//             F::BestEffort => Self::BestEffort,
-//             F::Reliable => Self::Reliable,
-//         }
-//     }
-// }
+        match from {
+            F::BestEffort => Self::BestEffort,
+            F::Reliable => Self::Reliable,
+        }
+    }
+}
