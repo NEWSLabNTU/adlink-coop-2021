@@ -1,6 +1,7 @@
 use reliable_broadcast as rb;
 
-use futures::stream::{StreamExt as _, TryStreamExt as _};
+use collected::SumVal;
+use futures::stream::{self, StreamExt as _, TryStreamExt as _};
 use rand::{prelude::*, rngs::OsRng};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -23,6 +24,8 @@ struct TestConfig {
     pub round_timeout: Duration,
     #[serde(with = "humantime_serde")]
     pub echo_interval: Duration,
+    #[serde(with = "humantime_serde")]
+    pub publisher_startup_delay: Duration,
     pub max_rounds: usize,
     pub extra_rounds: usize,
     pub sub_mode: rb::SubMode,
@@ -45,6 +48,7 @@ async fn main() -> Result<(), Error> {
         congestion_control,
         reliability,
         sub_mode,
+        publisher_startup_delay,
     } = {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("examples")
@@ -53,8 +57,8 @@ async fn main() -> Result<(), Error> {
         json5::from_str(&text)?
     };
 
-    let startup_duration = Duration::from_millis(3000);
-    let total_msgs = num_msgs * num_peers;
+    // let startup_duration = Duration::from_millis(3000);
+    let num_expected = num_msgs * num_peers;
     let interval = (round_timeout * max_rounds as u32) + Duration::from_millis(50);
 
     let futures = (0..num_peers).map(|_| {
@@ -65,6 +69,7 @@ async fn main() -> Result<(), Error> {
             config.set_add_timestamp(true.into()).unwrap();
             let session = Arc::new(zenoh::open(config).await?);
             let my_id = session.id().await;
+
             let (sender, stream) = rb::Config {
                 max_rounds,
                 extra_rounds,
@@ -78,13 +83,14 @@ async fn main() -> Result<(), Error> {
             .await?;
             let sink = sender.into_sink();
 
-            async_std::task::sleep(startup_duration).await;
-
             let producer_task = {
                 let my_id = my_id.clone();
 
                 async move {
-                    async_std::stream::interval(interval)
+                    async_std::task::sleep(publisher_startup_delay).await;
+
+                    stream::once(async move { () })
+                        .chain(async_std::stream::interval(interval))
                         .take(num_msgs)
                         .enumerate()
                         .map(move |(seq, ())| {
@@ -103,12 +109,9 @@ async fn main() -> Result<(), Error> {
                 let my_id = my_id.clone();
 
                 async move {
-                    // async_std::task::sleep(Duration::from_millis((5000 + 200 * num_peers) as u64))
-                    //     .await;
-                    // let timeout = interval * num_msgs as u32 + Duration::from_millis(500);
-                    let timeout = Duration::from_secs(20);
+                    let timeout = interval * num_msgs as u32 + Duration::from_millis(500);
 
-                    let cnt = stream
+                    let num_received = stream
                         .take(num_peers * num_msgs)
                         .take_until({
                             let my_id = my_id.clone();
@@ -148,9 +151,9 @@ async fn main() -> Result<(), Error> {
                         })
                         .await?;
 
-                    if cnt < total_msgs {
-                        let lost_msgs = total_msgs - cnt;
-                        let lost_pct = lost_msgs as f64 / total_msgs as f64;
+                    if num_received < num_msgs {
+                        let lost_msgs = num_expected - num_received;
+                        let lost_pct = lost_msgs as f64 / num_expected as f64;
                         eprintln!(
                             "{} lost {} broadcast messages ({:.2}%).",
                             my_id,
@@ -159,21 +162,37 @@ async fn main() -> Result<(), Error> {
                         );
                     }
 
-                    Result::<_, Error>::Ok(())
+                    Result::<_, Error>::Ok((num_received, num_expected))
                 }
             };
 
             let instant = Instant::now();
-            futures::future::try_join(producer_task, consumer_task).await?;
+            let ((), (num_received, num_expected)) =
+                futures::future::try_join(producer_task, consumer_task).await?;
             eprintln!("elapsed time for {}: {:?}", my_id, instant.elapsed());
 
-            Result::<_, Error>::Ok(())
+            Result::<_, Error>::Ok((num_received, num_expected))
         })
     });
 
     let start = Instant::now();
-    futures::future::try_join_all(futures).await?;
+    let (total_received, total_expected): (SumVal<_>, SumVal<_>) =
+        futures::future::try_join_all(futures)
+            .await?
+            .into_iter()
+            .unzip();
+
     eprintln!("total elapsed time {:?}", start.elapsed());
+    let total_expected = total_expected.into_inner();
+    let total_received = total_received.into_inner();
+    let total_lost = total_expected - total_received;
+    let loss_rate = total_lost as f64 / total_expected as f64;
+    eprintln!(
+        "expect {} msgs, {} lost, loss rate {:.2}%",
+        total_expected,
+        total_lost,
+        loss_rate * 100.0
+    );
 
     Ok(())
 }
