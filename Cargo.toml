@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "zenoh_consensus",
+    "zenoh-benchmark",
     "spatial-query",
 ]
 exclude = [
