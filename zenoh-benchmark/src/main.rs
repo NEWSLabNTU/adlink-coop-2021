@@ -32,7 +32,7 @@ async fn main() ->Result<()> {
             warmup,
             timeout,
         };
-        exp.run().await.expect("faield");
+        exp.run().await.expect("failed");
     }
 
     Ok(())
