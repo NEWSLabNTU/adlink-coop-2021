@@ -1,24 +1,18 @@
-use anyhow::anyhow;
-use anyhow::ensure;
-use anyhow::Result;
-use async_std::task::sleep;
-use async_std::task::spawn;
+use anyhow::{anyhow, ensure, Result};
+use async_std::task::{sleep, spawn};
 // use std::sync::Arc;
 use collected::SumVal;
 use futures::{future::try_join_all, try_join, StreamExt};
-use output_config::Cli;
+use output_config::{Cli, TestResult};
 use serde::{Deserialize, Serialize};
-use std::{
-    fmt,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 use zenoh as zn;
 
 const KEY: &str = "/key";
 
 type Error = Box<dyn std::error::Error + Sync + Send + 'static>;
 
-pub async fn run(config: &Cli) -> Result<()> {
+pub async fn run(config: &Cli) -> Result<TestResult> {
     ensure!(!config.pub_sub_separate, "pub_sub_separate must be false");
 
     let init_time = Duration::from_millis(config.init_time);
@@ -40,18 +34,21 @@ pub async fn run(config: &Cli) -> Result<()> {
         })
     });
 
-    match try_join_all(workers).await {
-        Ok(results) => {
-            let (total_received, total_elapsed): (SumVal<usize>, SumVal<Duration>) =
-                results.into_iter().unzip();
-            let exp_log = ExpLog {
-                receive_rate: total_received.into_inner() as f64 / n_peers.pow(2) as f64,
-                average_time: total_elapsed.into_inner().as_secs_f64() / n_peers as f64,
-            };
-            Ok(())
-        }
-        Err(_) => Ok(()),
+    if let Some(results) = try_join_all(workers).await.ok() {
+        let (total_received, total_elapsed): (SumVal<usize>, SumVal<Duration>) =
+            results.into_iter().unzip();
+        let exp_log = ExpLog {
+            receive_rate: total_received.into_inner() as f64 / n_peers.pow(2) as f64,
+            average_time: total_elapsed.into_inner().as_secs_f64() / n_peers as f64,
+        };
     }
+
+    Ok(TestResult {
+        config: config.clone(),
+        total_sub_returned: todo!(),
+        total_receive_rate: todo!(),
+        per_peer_result: todo!(),
+    })
 }
 
 async fn producer(session: &zn::Session, payload_size: usize, warmup: Duration) -> Result<()> {
@@ -81,20 +78,6 @@ async fn consumer(session: &zn::Session, n_peers: usize, timeout: Duration) -> R
         .count()
         .await;
     Ok(num_received)
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
-pub struct Experiment {
-    pub n_peers: usize,
-    pub payload_size: usize,
-    pub warmup: Duration,
-    pub timeout: Duration,
-}
-
-impl fmt::Display for Experiment {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}-{}", self.n_peers, self.payload_size)
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

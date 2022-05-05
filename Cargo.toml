@@ -1,10 +1,10 @@
 [workspace]
 members = [
-    "zenoh-benchmark",
     "spatial-query",
+    "reliable-broadcast",
+    "reliable-broadcast-benchmark",
 ]
 exclude = [
-    "reliable_broadcast",
     "zenoh_consensus",
 ]
 

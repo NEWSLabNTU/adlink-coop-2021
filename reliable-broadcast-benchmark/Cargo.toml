@@ -1,5 +1,5 @@
 [package]
-name = "zenoh-benchmark"
+name = "reliable-broadcast-benchmark"
 version = "0.1.0"
 edition = "2021"
 
