@@ -1,24 +1,19 @@
 use anyhow::Result;
+use clap::Parser;
 use itertools::iproduct;
+use output_config::Cli;
 use std::time::Duration;
-use structopt::StructOpt;
 
 mod utils;
 use utils::Experiment;
-
-#[derive(StructOpt)]
-struct Opt {
-    #[structopt(long)]
-    n_peers: usize,
-}
 
 const PAYLOAD_SIZE: usize = 4096;
 
 #[async_std::main]
 async fn main() -> Result<()> {
-    // let Opt { n_peers } = Opt::from_args();
-
     pretty_env_logger::init();
+
+    let opts = Cli::parse();
     let warmup = Duration::from_millis(1000);
     let timeout = Duration::from_millis(5000) + warmup;
 
@@ -29,7 +24,8 @@ async fn main() -> Result<()> {
             warmup,
             timeout,
         };
-        exp.run().await.expect("failed");
+
+        utils::run(&opts).await?;
     }
 
     Ok(())
