@@ -1,13 +1,9 @@
 use crate::Opts;
 use anyhow::{anyhow, ensure, Result};
-use async_std::stream::interval;
-use async_std::task::sleep;
-use futures::future::FutureExt;
-use futures::stream::TryStreamExt;
-use futures::{stream, StreamExt};
+use async_std::{stream::interval, task::sleep};
+use futures::{future::FutureExt, stream, stream::TryStreamExt, StreamExt};
 use output_config::{Cli, TestResult};
-use rand::prelude::*;
-use rand::rngs::OsRng;
+use rand::{prelude::*, rngs::OsRng};
 use reliable_broadcast as rb;
 use serde::{Deserialize, Serialize};
 use std::{
