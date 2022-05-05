@@ -6,13 +6,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.52"
-async-std = { version = "1.9.0", features = ["attributes"]}
+anyhow = "1.0.57"
+async-std = { version = "1.11.0", features = ["attributes"] }
 collected = "0.4.0"
-futures = "0.3.19"
+futures = "0.3.21"
 itertools = "0.10.3"
 pretty_env_logger = "0.4.0"
-serde = { version="1.0.132", features=["derive"] }
-serde_json = "1.0.73"
-structopt = "0.3.25"
-zenoh = { git = "https://github.com/eclipse-zenoh/zenoh", rev = "bd3db361bf93bdd9998413ac5e0eeb1b57816a47" }
+serde = { version = "1.0.137", features = ["derive"] }
+serde_json = "1.0.81"
+structopt = "0.3.26"
+zenoh = "0.6.0-dev.0"

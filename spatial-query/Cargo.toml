@@ -6,10 +6,10 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rstar = "0.9.1"
-zenoh = "0.5.0-beta.8"
-async-std = "1.9.0"
-futures = "0.3.17"
+rstar = "0.9.3"
+zenoh = "0.6.0-dev.0"
+async-std = "1.11.0"
+futures = "0.3.21"
 rocket = { version = "0.5.0-rc.1", features = ["json"] }
-tokio = { version = "1.11.0", features = ["sync"] }
-serde = { version = "1.0.130", features = ["derive"] }
+tokio = { version = "1.18.1", features = ["sync"] }
+serde = { version = "1.0.137", features = ["derive"] }

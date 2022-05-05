@@ -1,11 +1,12 @@
 // use std::sync::Arc;
-use futures::StreamExt;
-use zenoh as zn;
-use std::time::{Duration, Instant};
 use collected::SumVal;
-use futures::{try_join, future::try_join_all};
+use futures::{future::try_join_all, try_join, StreamExt};
 use serde::{Deserialize, Serialize};
-use std::io::Write;
+use std::{
+    io::Write,
+    time::{Duration, Instant},
+};
+use zenoh as zn;
 
 const KEY: &str = "/key";
 
@@ -24,11 +25,14 @@ async fn consumer(session: &zn::Session, n_peers: usize, timeout: Duration) -> R
 
     let num_received = stream
         .take(n_peers)
-        .take_until({async move {
-            async_std::task::sleep(timeout).await;
-        }})
+        .take_until({
+            async move {
+                async_std::task::sleep(timeout).await;
+            }
+        })
         .filter(|change| futures::future::ready(change.kind == zn::prelude::SampleKind::Put))
-        .count().await;
+        .count()
+        .await;
     Ok(num_received)
 }
 
@@ -61,7 +65,8 @@ impl Experiment {
                 let producer_fut = producer(&session, self.payload_size, self.warmup);
                 let consumer_fut = consumer(&session, self.n_peers, self.timeout);
                 let instant = Instant::now();
-                let ((), num_received) = try_join!(producer_fut, consumer_fut).expect("Failed on try_join");
+                let ((), num_received) =
+                    try_join!(producer_fut, consumer_fut).expect("Failed on try_join");
                 let elapsed = instant.elapsed();
                 session.close().await?;
                 Result::<_, Error>::Ok((num_received, elapsed))
@@ -70,7 +75,8 @@ impl Experiment {
 
         match try_join_all(workers).await {
             Ok(results) => {
-                let (total_received, total_elapsed): (SumVal<usize>, SumVal<Duration>) = results.into_iter().unzip();
+                let (total_received, total_elapsed): (SumVal<usize>, SumVal<Duration>) =
+                    results.into_iter().unzip();
                 let exp_log = ExpLog {
                     config: self.clone(),
                     receive_rate: total_received.into_inner() as f64 / self.n_peers.pow(2) as f64,
@@ -80,10 +86,7 @@ impl Experiment {
                 writeln!(&mut file, "{}", serde_json::to_string_pretty(&exp_log)?)?;
                 Ok(())
             }
-            Err(_) => {
-                Ok(())
-            }
+            Err(_) => Ok(()),
         }
     }
 }
-

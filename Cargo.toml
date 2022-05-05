@@ -1,11 +1,11 @@
 [workspace]
 members = [
-    "zenoh_consensus",
     "zenoh-benchmark",
     "spatial-query",
 ]
 exclude = [
     "reliable_broadcast",
+    "zenoh_consensus",
 ]
 
 [profile.dev.package."*"]
@@ -22,4 +22,4 @@ overflow-checks = true
 lto = false
 
 [patch.crates-io]
-zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "branch_0.5.0-beta.9" }
+zenoh = { git = "https://github.com/eclipse-zenoh/zenoh.git", rev = "90539129b1a7c9e8c7d7daaa84138d093f71fedf" }
