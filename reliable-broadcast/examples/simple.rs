@@ -1,8 +1,7 @@
-use reliable_broadcast as rb;
-
 use collected::SumVal;
 use futures::stream::{self, StreamExt as _, TryStreamExt as _};
 use rand::{prelude::*, rngs::OsRng};
+use reliable_broadcast as rb;
 use serde::{Deserialize, Serialize};
 use std::{
     error::Error as StdError,
