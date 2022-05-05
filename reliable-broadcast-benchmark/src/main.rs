@@ -2,12 +2,12 @@ use anyhow::Result;
 use clap::Parser;
 use output_config::Cli;
 
-mod utils;
+mod exp;
 
 #[async_std::main]
 async fn main() -> Result<()> {
     pretty_env_logger::init();
     let opts = Cli::parse();
-    utils::run(&opts).await?;
+    exp::run(&opts).await?;
     Ok(())
 }
