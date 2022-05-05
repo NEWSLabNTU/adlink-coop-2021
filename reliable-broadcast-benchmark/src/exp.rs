@@ -1,10 +1,13 @@
-use anyhow::{anyhow, ensure, Result};
-use async_std::task::{sleep, spawn};
-// use std::sync::Arc;
 use crate::Opts;
-use collected::SumVal;
-use futures::{future::try_join_all, try_join, StreamExt};
+use anyhow::{anyhow, ensure, Result};
+use async_std::stream::interval;
+use async_std::task::sleep;
+use futures::future::FutureExt;
+use futures::stream::TryStreamExt;
+use futures::{stream, StreamExt};
 use output_config::{Cli, TestResult};
+use rand::prelude::*;
+use rand::rngs::OsRng;
 use reliable_broadcast as rb;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -15,19 +18,33 @@ use zenoh as zn;
 
 const KEY: &str = "/key";
 
-type Error = Box<dyn std::error::Error + Sync + Send + 'static>;
-
 pub async fn run(config: &Opts) -> Result<TestResult> {
     ensure!(
         !config.cli.pub_sub_separate,
         "pub_sub_separate must be false"
     );
 
+    let Opts {
+        cli:
+            Cli {
+                payload_size,
+                peer_id,
+                num_msgs_per_peer,
+                total_put_number,
+                remote_pub_peers,
+                ..
+            },
+        congestion_control,
+        reliability,
+        sub_mode,
+        max_rounds,
+        ..
+    } = *config;
+    let num_expected = (total_put_number + remote_pub_peers) * num_msgs_per_peer;
     let init_time = Duration::from_millis(config.cli.init_time);
-    let n_peers = config.cli.total_put_number;
     let round_timeout = Duration::from_millis(config.cli.round_timeout);
-    let payload_size = config.cli.payload_size;
     let echo_interval = Duration::from_millis(config.echo_interval);
+    let publish_interval = (round_timeout * max_rounds as u32) + Duration::from_millis(50);
 
     let session = zn::open(zn::config::Config::default())
         .await
@@ -39,15 +56,90 @@ pub async fn run(config: &Opts) -> Result<TestResult> {
         extra_rounds: config.extra_rounds,
         round_timeout,
         echo_interval,
-        congestion_control: config.congestion_control,
-        reliability: config.reliability,
-        sub_mode: config.sub_mode,
+        congestion_control,
+        reliability,
+        sub_mode,
     }
-    .build::<(), _>(session.clone(), KEY)
+    .build(session.clone(), KEY)
     .await
     .map_err(|err| anyhow!("{}", err))?;
 
     let instant = Instant::now();
+
+    let producer_future = async move {
+        sleep(init_time).await;
+
+        stream::once(async move { () })
+            .chain(interval(publish_interval))
+            .take(num_msgs_per_peer)
+            .enumerate()
+            .map(anyhow::Ok)
+            .try_fold(sender, move |sender, (seq, ())| async move {
+                let data: u8 = OsRng.gen();
+                eprintln!("{} sends seq={}, data={}", peer_id, seq, data);
+                sender.send(data).await.map_err(|err| anyhow!("{}", err))?;
+                anyhow::Ok(sender)
+            })
+            .await?;
+
+        anyhow::Ok(())
+    };
+
+    let consumer_future = async move {
+        let consumer_timeout =
+            publish_interval * num_msgs_per_peer as u32 + Duration::from_millis(500);
+
+        let num_received = stream
+            .take(num_expected)
+            .take_until({
+                async move {
+                    sleep(consumer_timeout).await;
+                    eprintln!("{} timeout", peer_id);
+                }
+            })
+            .try_fold(0, |cnt, event| async move {
+                let rb::Event {
+                    result,
+                    broadcast_id,
+                } = event;
+
+                match result {
+                    Ok(data) => {
+                        eprintln!(
+                            "{} accepted data={} for broadcast_id={}",
+                            peer_id, data, broadcast_id
+                        );
+
+                        Ok(cnt + 1)
+                    }
+                    Err(err) => {
+                        eprintln!(
+                            "{} failed broadcast_id={} due to error: {:?}",
+                            peer_id, broadcast_id, err
+                        );
+                        Ok(cnt + 1)
+                    }
+                }
+            })
+            .await
+            .map_err(|err| anyhow!("{}", err))?;
+
+        if num_received < num_expected {
+            let lost_msgs = num_expected - num_received;
+            let lost_pct = lost_msgs as f64 / num_expected as f64;
+            eprintln!(
+                "{} lost {} broadcast messages ({:.2}%).",
+                peer_id,
+                lost_msgs,
+                lost_pct * 100.0
+            );
+        }
+
+        anyhow::Ok((num_received, num_expected))
+    };
+
+    futures::try_join!(producer_future, consumer_future)?;
+
     let elapsed = instant.elapsed();
     let session = Arc::try_unwrap(session).expect("please report bug");
     session.close().await.map_err(|err| anyhow!("{}", err))?;
@@ -58,35 +150,6 @@ pub async fn run(config: &Opts) -> Result<TestResult> {
         total_receive_rate: todo!(),
         per_peer_result: todo!(),
     })
-}
-
-async fn producer(session: &zn::Session, payload_size: usize, warmup: Duration) -> Result<()> {
-    sleep(warmup).await;
-    session
-        .put(KEY, vec![0u8; payload_size])
-        .await
-        .map_err(|err| anyhow!("{}", err))?;
-    Ok(())
-}
-
-async fn consumer(session: &zn::Session, n_peers: usize, timeout: Duration) -> Result<usize> {
-    let mut sub = session
-        .subscribe(KEY)
-        .await
-        .map_err(|err| anyhow!("{}", err))?;
-    let stream = sub.receiver();
-
-    let num_received = stream
-        .take(n_peers)
-        .take_until({
-            async move {
-                sleep(timeout).await;
-            }
-        })
-        .filter(|change| futures::future::ready(change.kind == zn::prelude::SampleKind::Put))
-        .count()
-        .await;
-    Ok(num_received)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
