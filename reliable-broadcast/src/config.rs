@@ -33,10 +33,10 @@ impl Config {
         K: Into<KeyExpr<'a>>,
     {
         // sanity check
-        if !(self.echo_interval < self.round_timeout) {
+        if self.echo_interval >= self.round_timeout {
             return Err(anyhow!("echo_interval must be less than round_timeout").into());
         }
-        if !(self.extra_rounds < self.max_rounds) {
+        if self.extra_rounds >= self.max_rounds {
             return Err(anyhow!("extra_rounds must be less than max_rounds").into());
         }
 
@@ -83,14 +83,13 @@ impl Config {
                 }
             });
 
-            let stream = stream::select(
+            stream::select(
                 future::try_join(receiving_worker, echo_worker)
                     .map_ok(|_| None)
                     .into_stream(),
                 stream.map(|event| Ok(Some(event))),
             )
-            .try_filter_map(|data| async move { Ok(data) });
-            stream
+            .try_filter_map(|data| async move { Ok(data) })
         };
 
         Ok((sender, stream))

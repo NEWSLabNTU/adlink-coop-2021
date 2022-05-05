@@ -221,7 +221,7 @@ where
                         };
                         let broadcast_ids: Vec<_> = echo_requests.into_iter().collect();
                         let msg: Message<T> = Echo {
-                            from: me.my_id.clone(),
+                            from: me.my_id,
                             broadcast_ids,
                         }
                         .into();
@@ -281,7 +281,7 @@ where
                             // case: n_echos >= 1/3 n_peers
                             else if num_echos * 3 >= num_peers {
                                 // send echo and try again
-                                me.request_sending_echo(broadcast_id.clone()).await;
+                                me.request_sending_echo(broadcast_id).await;
                                 None
                             }
                             // case: n_echos < 1/3 n_peers

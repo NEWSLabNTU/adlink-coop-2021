@@ -46,8 +46,7 @@ impl<T> From<Echo> for Message<T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Derivative, Serialize, Deserialize)]
-#[derivative(Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Derivative, Serialize, Deserialize)]
 /// The structure for the message type *(m, s)*.
 pub struct Broadcast<T> {
     pub from: Uuid,
@@ -66,16 +65,14 @@ impl<T> Broadcast<T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Derivative, Serialize, Deserialize)]
-#[derivative(Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Derivative, Serialize, Deserialize)]
 /// The structure for the message type *echo(m, s)*
 pub struct Echo {
     pub from: Uuid,
     pub broadcast_ids: Vec<BroadcastId>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Derivative, Serialize, Deserialize)]
-#[derivative(Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Derivative, Serialize, Deserialize)]
 /// The structure for the message type *present*.
 pub struct Present {
     pub from: Uuid,
